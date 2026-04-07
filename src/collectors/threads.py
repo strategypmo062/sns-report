@@ -96,6 +96,9 @@ class ThreadsCollector(BaseCollector):
         co = ChromiumOptions()
         co.set_argument("--no-first-run")
         co.auto_port()
+        # Required for Linux container environments (e.g. Render, Docker)
+        co.set_argument("--no-sandbox")
+        co.set_argument("--disable-dev-shm-usage")
         co.set_argument("--window-position=-2400,-2400")  # 화면 밖
 
         self._browser = Chromium(co)

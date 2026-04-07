@@ -88,6 +88,9 @@ class DCardCollector(BaseCollector):
         co.set_argument("--no-first-run")
         co.set_argument("--lang=zh-TW")
         co.auto_port()
+        # Required for Linux container environments (e.g. Render, Docker)
+        co.set_argument("--no-sandbox")
+        co.set_argument("--disable-dev-shm-usage")
         # Headed mode required — Cloudflare detects headless Chrome
         # Window is minimized to stay out of the way
         co.set_argument("--window-position=-2400,-2400")
