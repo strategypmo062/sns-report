@@ -112,11 +112,15 @@ class DCardCollector(BaseCollector):
         args = ["--lang=zh-TW"]
         if is_server:
             args.extend(["--no-sandbox", "--disable-dev-shm-usage"])
+        else:
+            args.append("--window-position=-2400,-2400")
         executable = "/usr/bin/chromium" if is_server else None
-        print(f"  [DCard] Launching chromium (server={is_server}) ...")
+        # headless=False: xvfb-run already provides DISPLAY on server,
+        # headed mode is less detectable by CF than headless.
+        print(f"  [DCard] Launching chromium (server={is_server}, headless=False) ...")
         try:
             self._browser = self._pw.chromium.launch(
-                headless=True,
+                headless=False,
                 executable_path=executable,
                 args=args,
             )
