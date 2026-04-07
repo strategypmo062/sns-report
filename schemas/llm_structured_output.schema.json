@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LLM Structured Output",
+  "type": "object",
+  "required": ["records"],
+  "additionalProperties": false,
+  "properties": {
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "original_text",
+          "ko_translation",
+          "date",
+          "main_category",
+          "sub_category",
+          "sentiment",
+          "sns",
+          "url"
+        ],
+        "properties": {
+          "original_text": { "type": "string", "minLength": 1 },
+          "ko_translation": { "type": "string" },
+          "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "main_category": {
+            "type": "string",
+            "enum": ["전반", "비용", "기능", "희망 기능", "미적용 아쉬움", "-"]
+          },
+          "sub_category": {
+            "type": "string",
+            "enum": [
+              "Unsend",
+              "Message Backup",
+              "Album",
+              "Font",
+              "App Icon",
+              "Sub Profile",
+              "LINE family 서비스 혜택",
+              "전반",
+              "비용",
+              "희망 기능",
+              "미적용 아쉬움",
+              "-"
+            ]
+          },
+          "sentiment": {
+            "type": "string",
+            "enum": ["긍정", "부정", "중립", "-"]
+          },
+          "sns": {
+            "type": "string",
+            "enum": [
+              "DCard",
+              "PTT",
+              "Threads",
+              "Instagram",
+              "YouTube",
+              "Facebook",
+              "Mobile01",
+              "Google Play Store Review (Sensor Tower)",
+              "Apple App Store Review (Sensor Tower)"
+            ]
+          },
+          "url": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

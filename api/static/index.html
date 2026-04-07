@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SNS Report</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: { brand: { DEFAULT: '#06C755', dark: '#05a849' } } } }
+    }
+  </script>
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .progress-bar { transition: width 0.4s ease; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen text-gray-800" x-data="app()" x-cloak>
+
+  <!-- Header -->
+  <header class="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-3">
+    <span class="text-xl font-bold text-brand">SNS Report</span>
+    <span class="text-gray-300 text-xl">|</span>
+    <span class="text-sm text-gray-500">LINE Premium 반응 분석</span>
+  </header>
+
+  <!-- Tabs -->
+  <div class="bg-white border-b border-gray-200 px-6">
+    <nav class="flex gap-6">
+      <button
+        @click="switchTab('pipeline')"
+        :class="tab === 'pipeline' ? 'border-b-2 border-brand text-brand font-medium' : 'text-gray-500 hover:text-gray-700'"
+        class="py-3 text-sm transition-colors"
+      >수집 &amp; 파싱</button>
+      <button
+        @click="switchTab('analyze')"
+        :class="tab === 'analyze' ? 'border-b-2 border-brand text-brand font-medium' : 'text-gray-500 hover:text-gray-700'"
+        class="py-3 text-sm transition-colors"
+      >분석</button>
+    </nav>
+  </div>
+
+  <main class="max-w-2xl mx-auto px-4 py-8">
+
+    <!-- ═══════════════════════════════════════════════════
+         TAB 1: 수집 & 파싱
+    ═══════════════════════════════════════════════════ -->
+    <div x-show="tab === 'pipeline'">
+
+      <!-- Stepper -->
+      <div class="flex items-center mb-8">
+        <template x-for="(label, i) in ['입력', '파싱 중', '검토', '승인']" :key="i">
+          <div class="flex items-center" :class="i < 3 ? 'flex-1' : ''">
+            <div class="flex flex-col items-center">
+              <div
+                class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
+                :class="{
+                  'bg-brand text-white': step === i + 1,
+                  'bg-green-500 text-white': step > i + 1,
+                  'bg-gray-200 text-gray-500': step < i + 1
+                }"
+              >
+                <span x-show="step <= i + 1" x-text="i + 1"></span>
+                <span x-show="step > i + 1">✓</span>
+              </div>
+              <span class="text-xs mt-1"
+                :class="step === i + 1 ? 'text-brand font-medium' : 'text-gray-400'"
+                x-text="label"
+              ></span>
+            </div>
+            <div x-show="i < 3" class="flex-1 h-0.5 mb-5 mx-1"
+              :class="step > i + 1 ? 'bg-green-400' : 'bg-gray-200'">
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- ── STEP 1: 입력 ───────────────────────────────── -->
+      <div x-show="step === 1">
+        <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
+
+          <!-- 자동 수집 -->
+          <div>
+            <h2 class="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">자동 수집</h2>
+
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm text-gray-600 mb-1">키워드 <span class="text-gray-400">(쉼표 구분)</span></label>
+                <input
+                  x-model="keywords"
+                  type="text"
+                  placeholder="LINE, LINE Premium, LINE 付費"
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+                />
+              </div>
+
+              <div class="flex gap-3">
+                <div class="flex-1">
+                  <label class="block text-sm text-gray-600 mb-1">시작일</label>
+                  <input x-model="dateFrom" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                </div>
+                <div class="flex-1">
+                  <label class="block text-sm text-gray-600 mb-1">종료일</label>
+                  <input x-model="dateTo" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+                </div>
+              </div>
+
+              <!-- Platform checkboxes -->
+              <div>
+                <label class="block text-sm text-gray-600 mb-2">플랫폼</label>
+                <div class="space-y-2">
+                  <template x-for="p in platformList" :key="p.name">
+                    <div class="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        :id="'plat-' + p.name"
+                        :disabled="!p.active"
+                        x-model="platforms[p.name]"
+                        class="mt-0.5 rounded border-gray-300 text-brand focus:ring-brand"
+                      />
+                      <label :for="'plat-' + p.name" class="text-sm" :class="p.active ? 'text-gray-700 cursor-pointer' : 'text-gray-400 cursor-not-allowed'">
+                        <span x-text="p.name"></span>
+                        <span x-show="p.name === 'PTT' && platforms['PTT']" class="ml-1 text-xs text-gray-400">(Gossiping, MobileComm)</span>
+
+                        <span x-show="!p.active" class="ml-1 text-xs text-gray-400">(미구현 — 아래 붙여넣기 사용)</span>
+                      </label>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-sm text-gray-600 mb-1">플랫폼당 최대 게시물</label>
+                <input x-model.number="maxPosts" type="number" min="1" max="200"
+                  @wheel.prevent
+                  class="w-28 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+              </div>
+            </div>
+          </div>
+
+          <!-- 구분선 -->
+          <div class="border-t border-gray-100"></div>
+
+          <!-- 직접 붙여넣기 -->
+          <div>
+            <h2 class="text-sm font-semibold text-gray-700 mb-1 uppercase tracking-wide">직접 붙여넣기 <span class="text-xs font-normal text-gray-400 normal-case">(선택)</span></h2>
+            <p class="text-xs text-gray-400 mb-3">PTT·DCard 외 SNS(YouTube, Mobile01 등)는 링크와 텍스트를 여기에 직접 붙여넣으세요.</p>
+            <textarea
+              x-model="pasteText"
+              rows="6"
+              placeholder="https://www.youtube.com/watch?v=ABC123&#10;&#10;[제목]&#10;[본문]&#10;---&#10;[댓글 1]&#10;&#10;💡 각 블록은 URL로 시작해야 합니다&#10;💡 여러 URL 블록을 한번에 붙여넣기 가능&#10;지원: PTT, DCard, Threads, YouTube, Mobile01"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand resize-y"
+            ></textarea>
+          </div>
+
+          <!-- 안내 + 시작 버튼 -->
+          <div class="text-xs text-gray-400">
+            자동 수집만, 붙여넣기만, 또는 둘 다 가능합니다.
+          </div>
+
+          <button
+            @click="startPipeline()"
+            :disabled="!canStart"
+            class="w-full py-3 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            수집 + 파싱 시작
+          </button>
+        </div>
+      </div>
+
+      <!-- ── STEP 2: 파싱 중 ─────────────────────────────── -->
+      <div x-show="step === 2">
+        <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
+
+          <!-- 수집 진행 -->
+          <div x-show="Object.keys(collectProgress).length > 0">
+            <h3 class="text-sm font-semibold text-gray-600 mb-3">수집</h3>
+            <div class="space-y-2">
+              <template x-for="(info, platform) in collectProgress" :key="platform">
+                <div class="flex items-center gap-3">
+                  <span class="text-sm w-16" x-text="platform"></span>
+                  <div class="flex-1 bg-gray-100 rounded-full h-2">
+                    <div class="progress-bar bg-brand h-2 rounded-full"
+                      :style="'width:' + (info.done ? '100' : '50') + '%'">
+                    </div>
+                  </div>
+                  <span class="text-xs text-gray-500 w-24">
+                    <span x-show="info.done">게시글 <span x-text="info.posts"></span>개 ✓</span>
+                    <span x-show="!info.done && !info.error">수집 중...</span>
+                    <span x-show="info.error" class="text-red-500">오류</span>
+                  </span>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- 파싱 진행 -->
+          <div x-show="parseInfo.started">
+            <h3 class="text-sm font-semibold text-gray-600 mb-3">
+              파싱
+              <span class="font-normal text-gray-400 text-xs" x-show="!collectDone">— 수집 완료 후 시작</span>
+            </h3>
+            <div class="space-y-2">
+              <div class="flex items-center gap-3">
+                <span class="text-sm text-gray-500 w-24">청크 진행</span>
+                <div class="flex-1 bg-gray-100 rounded-full h-2">
+                  <div class="progress-bar bg-brand h-2 rounded-full"
+                    :style="'width:' + parseJobPct + '%'">
+                  </div>
+                </div>
+                <span class="text-xs text-gray-500 w-20">
+                  <span x-text="parseInfo.completedJobs"></span>/<span x-text="parseInfo.totalJobs"></span>
+                </span>
+              </div>
+              <div class="text-xs text-gray-400">
+                처리된 레코드: <span x-text="parseInfo.recordsDone"></span>
+                <span x-show="parseInfo.totalUnits"> / ~<span x-text="parseInfo.totalUnits"></span></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 경과 시간 + 취소 -->
+          <div class="flex items-center justify-between pt-2">
+            <span class="text-xs text-gray-400">경과: <span x-text="elapsedStr"></span></span>
+            <button @click="cancelPipeline()"
+              class="text-sm text-red-500 hover:text-red-700 underline">
+              취소
+            </button>
+          </div>
+
+          <!-- 에러 메시지 -->
+          <div x-show="pipelineError" class="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700" x-text="pipelineError"></div>
+        </div>
+      </div>
+
+      <!-- ── STEP 3: 검토 ─────────────────────────────────── -->
+      <div x-show="step === 3">
+        <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+
+          <div>
+            <p class="text-sm text-gray-700">
+              <span class="font-semibold text-brand-dark" x-text="sheetStats?.total ?? 0"></span>행 파싱 완료.
+              승인 전 반드시 Google Sheets에서 검토하세요.
+            </p>
+          </div>
+
+          <a
+            :href="spreadsheetUrl"
+            target="_blank"
+            class="flex items-center justify-center gap-2 w-full py-3 bg-green-50 border border-green-200 text-brand-dark rounded-lg text-sm font-medium hover:bg-green-100 transition-colors"
+          >
+            A_AI_정리 Google Sheets에서 열기
+            <span class="text-base">↗</span>
+          </a>
+
+          <!-- 빠른 통계 -->
+          <div x-show="sheetStats" class="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+            <div class="font-medium text-gray-600 mb-2">빠른 통계</div>
+            <div class="flex gap-2 flex-wrap">
+              <template x-for="(count, label) in (sheetStats?.sentiment ?? {})" :key="label">
+                <span class="px-2 py-0.5 bg-white border border-gray-200 rounded text-xs">
+                  <span x-text="label"></span>: <span class="font-medium" x-text="count"></span>
+                </span>
+              </template>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+              <template x-for="(count, label) in (sheetStats?.category ?? {})" :key="label">
+                <span x-show="label !== '-'" class="px-2 py-0.5 bg-white border border-gray-200 rounded text-xs">
+                  <span x-text="label"></span>: <span class="font-medium" x-text="count"></span>
+                </span>
+              </template>
+            </div>
+            <div x-show="sheetStats?.sns" class="flex gap-2 flex-wrap">
+              <template x-for="(count, sns) in (sheetStats?.sns ?? {})" :key="sns">
+                <span class="px-2 py-0.5 bg-white border border-gray-200 rounded text-xs">
+                  <span x-text="sns"></span>: <span class="font-medium" x-text="count"></span>
+                </span>
+              </template>
+            </div>
+          </div>
+
+          <!-- 미리보기 테이블 -->
+          <div x-show="sheetStats?.preview?.length > 0">
+            <div class="text-xs text-gray-400 mb-2">미리보기 (읽기 전용, 최대 20행)</div>
+            <div class="overflow-x-auto border border-gray-200 rounded-lg">
+              <table class="text-xs w-full">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-2 py-2 text-left text-gray-500 font-medium">KO 번역</th>
+                    <th class="px-2 py-2 text-left text-gray-500 font-medium">날짜</th>
+                    <th class="px-2 py-2 text-left text-gray-500 font-medium">카테고리</th>
+                    <th class="px-2 py-2 text-left text-gray-500 font-medium">감정</th>
+                    <th class="px-2 py-2 text-left text-gray-500 font-medium">SNS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="(row, i) in (sheetStats?.preview ?? [])" :key="i">
+                    <tr :class="i % 2 === 0 ? 'bg-white' : 'bg-gray-50'">
+                      <td class="px-2 py-1.5 max-w-48 truncate" x-text="row.ko"></td>
+                      <td class="px-2 py-1.5 whitespace-nowrap" x-text="row.date"></td>
+                      <td class="px-2 py-1.5 whitespace-nowrap" x-text="row.main_category"></td>
+                      <td class="px-2 py-1.5 whitespace-nowrap"
+                        :class="{
+                          'text-blue-600': row.sentiment === '긍정',
+                          'text-red-600': row.sentiment === '부정',
+                          'text-gray-500': row.sentiment === '중립'
+                        }"
+                        x-text="row.sentiment">
+                      </td>
+                      <td class="px-2 py-1.5 text-gray-400" x-text="row.sns"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 검토 체크 -->
+          <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <p class="text-sm text-amber-800 mb-3">
+              ⚠ 검토는 필수입니다. Google Sheets에서 직접 편집한 후 돌아오세요.
+            </p>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" x-model="reviewChecked" class="rounded border-gray-300 text-brand focus:ring-brand" />
+              <span class="text-sm text-gray-700">A_AI_정리를 검토하고 수정했습니다</span>
+            </label>
+          </div>
+
+          <button
+            @click="approve()"
+            :disabled="!reviewChecked || approving"
+            class="w-full py-3 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <span x-show="!approving">승인 → B_누적_raw</span>
+            <span x-show="approving">승인 처리 중...</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── STEP 4: 승인 완료 ─────────────────────────────── -->
+      <div x-show="step === 4">
+        <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+              <span class="text-green-600 text-xl">✓</span>
+            </div>
+            <h2 class="text-lg font-semibold text-gray-800">승인 완료!</h2>
+          </div>
+
+          <div class="bg-gray-50 rounded-lg p-4 space-y-1.5 text-sm">
+            <div class="flex justify-between">
+              <span class="text-gray-600">승인된 행</span>
+              <span class="font-semibold text-green-700" x-text="approveResult?.approved + '행'"></span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-600">중복 건너뜀</span>
+              <span class="text-gray-500" x-text="approveResult?.skipped_duplicates + '행'"></span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-600">카테고리 "-" 건너뜀</span>
+              <span class="text-gray-500" x-text="approveResult?.skipped_dash + '행'"></span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-600">학습된 수정</span>
+              <span class="text-gray-500" x-text="approveResult?.learned + '건'"></span>
+            </div>
+          </div>
+
+          <div class="flex gap-3">
+            <button
+              @click="switchTab('analyze')"
+              class="flex-1 py-3 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-dark transition-colors"
+            >
+              분석으로 이동 →
+            </button>
+            <button
+              @click="resetPipeline()"
+              class="flex-1 py-3 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
+            >
+              새로 수집 &amp; 파싱
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /pipeline tab -->
+
+    <!-- ═══════════════════════════════════════════════════
+         TAB 2: 분석
+    ═══════════════════════════════════════════════════ -->
+    <div x-show="tab === 'analyze'" class="space-y-5">
+
+      <!-- 날짜 설정 -->
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <h2 class="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">날짜 설정</h2>
+        <div class="space-y-3">
+          <div class="flex gap-3 items-center">
+            <label class="text-sm text-gray-600 w-28 shrink-0">트렌드 시작일</label>
+            <input x-model="trendStart" type="date" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+            <span class="text-xs text-gray-400">이전 값 유지, 변경 가능</span>
+          </div>
+          <div class="flex gap-3 items-center">
+            <label class="text-sm text-gray-600 w-28 shrink-0">분석 대상</label>
+            <input x-model="analyzeFrom" type="date" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+            <span class="text-sm text-gray-400">~</span>
+            <input x-model="analyzeTo" type="date" :min="analyzeFrom" class="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+              :class="dateRangeInvalid ? 'border-red-400 focus:ring-red-300' : 'border-gray-300 focus:ring-brand'" />
+          </div>
+          <p x-show="dateRangeInvalid" class="text-xs text-red-500">종료일이 시작일보다 앞에 있습니다.</p>
+          <p x-show="!dateRangeInvalid" class="text-xs text-gray-400">예: 평일 → 어제 하루 / 월요일 → 금~일</p>
+        </div>
+      </div>
+
+      <!-- 생성 카드 2개 -->
+      <div class="grid grid-cols-2 gap-4">
+
+        <!-- 피벗 (C 시트) -->
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 class="text-sm font-semibold text-gray-700 mb-1">피벗 생성</h3>
+          <p class="text-xs text-gray-400 mb-4">→ C_pivot_<span x-text="analyzeLabel()"></span><br>소스: B_누적_raw | ~5초</p>
+
+          <div x-show="pivotStatus === 'idle' || pivotStatus === 'done' || pivotStatus === 'error'">
+            <button
+              @click="generatePivot()"
+              :disabled="!analyzeTo || !trendStart || dateRangeInvalid"
+              class="w-full py-2 bg-brand text-white rounded-lg text-sm hover:bg-brand-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >생성</button>
+          </div>
+
+          <div x-show="pivotStatus === 'running'" class="flex items-center gap-2 text-sm text-gray-500">
+            <div class="animate-spin w-4 h-4 border-2 border-brand border-t-transparent rounded-full"></div>
+            생성 중...
+          </div>
+
+          <div x-show="pivotStatus === 'done'" class="mt-2 text-xs text-green-600">✓ 생성 완료: C_pivot_<span x-text="pivotSheet"></span></div>
+          <div x-show="pivotStatus === 'error'" class="mt-2 text-xs text-red-600" x-text="pivotError"></div>
+        </div>
+
+        <!-- 요약 (D 시트) -->
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 class="text-sm font-semibold text-gray-700 mb-1">요약 생성</h3>
+          <p class="text-xs text-gray-400 mb-4">→ D_summary_<span x-text="analyzeLabel()"></span><br>소스: B_누적_raw | ~1-2분</p>
+
+          <div x-show="summaryStatus === 'idle' || summaryStatus === 'done' || summaryStatus === 'error'">
+            <button
+              @click="generateSummary()"
+              :disabled="!analyzeTo || dateRangeInvalid"
+              class="w-full py-2 bg-brand text-white rounded-lg text-sm hover:bg-brand-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >생성</button>
+          </div>
+
+          <div x-show="summaryStatus === 'running'" class="space-y-2">
+            <!-- KO 추출 -->
+            <div x-show="summaryProgress.ko_total > 0">
+              <div class="flex justify-between text-xs text-gray-500 mb-1">
+                <span>KO 키워드 추출</span>
+                <span><span x-text="summaryProgress.ko_done"></span>/<span x-text="summaryProgress.ko_total"></span></span>
+              </div>
+              <div class="bg-gray-100 rounded-full h-1.5">
+                <div class="progress-bar bg-brand h-1.5 rounded-full"
+                  :style="'width:' + (summaryProgress.ko_total ? Math.round(summaryProgress.ko_done / summaryProgress.ko_total * 100) : 0) + '%'">
+                </div>
+              </div>
+            </div>
+            <!-- JA 번역 -->
+            <div x-show="summaryProgress.ja_total > 0">
+              <div class="flex justify-between text-xs text-gray-500 mb-1">
+                <span>JA 번역</span>
+                <span><span x-text="summaryProgress.ja_done"></span>/<span x-text="summaryProgress.ja_total"></span></span>
+              </div>
+              <div class="bg-gray-100 rounded-full h-1.5">
+                <div class="progress-bar bg-brand h-1.5 rounded-full"
+                  :style="'width:' + (summaryProgress.ja_total ? Math.round(summaryProgress.ja_done / summaryProgress.ja_total * 100) : 0) + '%'">
+                </div>
+              </div>
+            </div>
+            <div x-show="summaryProgress.ko_total === 0" class="flex items-center gap-2 text-xs text-gray-400">
+              <div class="animate-spin w-3 h-3 border-2 border-brand border-t-transparent rounded-full"></div>
+              준비 중...
+            </div>
+          </div>
+
+          <div x-show="summaryStatus === 'done'" class="mt-2 text-xs text-green-600">✓ 생성 완료: D_summary_<span x-text="summarySheet"></span></div>
+          <div x-show="summaryStatus === 'error'" class="mt-2 text-xs text-red-600" x-text="summaryError"></div>
+        </div>
+      </div>
+
+      <!-- 엑셀 내보내기 -->
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-sm font-semibold text-gray-700">엑셀 내보내기</h3>
+          <button @click="loadPivotSheets()" class="text-xs text-brand hover:underline">새로고침</button>
+        </div>
+
+        <div x-show="pivotSheets.length === 0" class="text-sm text-gray-400">
+          C_pivot 시트가 없습니다. 먼저 피벗을 생성하세요.
+        </div>
+
+        <div class="space-y-2">
+          <template x-for="sheet in pivotSheets" :key="sheet">
+            <div class="flex items-center justify-between py-1.5 border-b border-gray-100 last:border-0">
+              <span class="text-sm text-gray-700" x-text="sheet"></span>
+              <button
+                @click="exportXlsx(sheet)"
+                :disabled="exportingSheet === sheet"
+                class="text-sm text-brand hover:underline disabled:opacity-40"
+              >
+                <span x-show="exportingSheet !== sheet">.xlsx 다운로드 ↓</span>
+                <span x-show="exportingSheet === sheet">생성 중...</span>
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Google Sheets 바로가기 -->
+      <a :href="spreadsheetUrl" target="_blank"
+        class="flex items-center justify-center gap-2 w-full py-3 bg-gray-100 text-gray-600 rounded-xl text-sm hover:bg-gray-200 transition-colors">
+        Google Sheets 전체 열기 ↗
+      </a>
+
+    </div><!-- /analyze tab -->
+
+  </main>
+
+  <script>
+    function app() {
+      // ── Helpers ─────────────────────────────────────────────────────────
+      const yesterday = () => {
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        return d.toISOString().split('T')[0];
+      };
+
+      return {
+        // Navigation
+        tab: 'pipeline',
+
+        // Pipeline: Step 1 (input)
+        step: 1,
+        keywords: 'LINE, LINE Premium',
+        dateFrom: yesterday(),
+        dateTo: yesterday(),
+        pttBoards: 'Gossiping,MobileComm',
+        maxPosts: 30,
+        pasteText: '',
+        platforms: { PTT: true, DCard: true, Threads: false },
+        platformList: [],
+
+        // Pipeline: Step 2 (progress)
+        jobId: null,
+        collectProgress: {},   // {PTT: {done, posts, comments, error}}
+        collectDone: false,
+        parseInfo: { started: false, totalJobs: 0, completedJobs: 0, totalUnits: 0, recordsDone: 0 },
+        elapsed: 0,
+        elapsedTimer: null,
+        pipelineError: '',
+
+        // Pipeline: Step 3 (review)
+        sheetStats: null,
+        reviewChecked: false,
+        approving: false,
+
+        // Pipeline: Step 4 (approve result)
+        approveResult: null,
+
+        // Analyze tab
+        trendStart: '2026-03-17',
+        analyzeFrom: yesterday(),
+        analyzeTo: yesterday(),
+        pivotStatus: 'idle',   // idle | running | done | error
+        pivotSheet: '',
+        pivotError: '',
+        summaryStatus: 'idle',
+        summarySheet: '',
+        summaryError: '',
+        summaryProgress: { ko_done: 0, ko_total: 0, ja_done: 0, ja_total: 0 },
+        pivotSheets: [],
+        exportingSheet: null,
+        spreadsheetUrl: '',
+
+        // ── Computed ────────────────────────────────────────────────────────
+        get canStart() {
+          const hasAnyPlatform = Object.values(this.platforms).some(v => v);
+          const hasPaste = this.pasteText.trim().length > 0;
+          return (hasAnyPlatform || hasPaste) && this.dateFrom && this.dateTo && this.keywords;
+        },
+
+        get parseJobPct() {
+          if (!this.parseInfo.totalJobs) return 0;
+          return Math.round((this.parseInfo.completedJobs / this.parseInfo.totalJobs) * 100);
+        },
+
+        get elapsedStr() {
+          const s = this.elapsed;
+          if (s < 60) return `${s}초`;
+          return `${Math.floor(s / 60)}분 ${s % 60}초`;
+        },
+
+        // ── Lifecycle ───────────────────────────────────────────────────────
+        async init() {
+          // Load platforms from API
+          try {
+            const res = await fetch('/api/platforms');
+            const data = await res.json();
+            const activeSet = new Set((data.platforms || []).map(p => p.toLowerCase()));
+            this.platformList = [
+              { name: 'PTT',     active: activeSet.has('ptt') },
+              { name: 'DCard',   active: activeSet.has('dcard') },
+              { name: 'Threads', active: activeSet.has('threads') },
+            ];
+          } catch {
+            this.platformList = [
+              { name: 'PTT',     active: true },
+              { name: 'DCard',   active: true },
+              { name: 'Threads', active: false },
+            ];
+          }
+          // Load spreadsheet URL
+          try {
+            const res = await fetch('/api/spreadsheet-url');
+            const data = await res.json();
+            this.spreadsheetUrl = data.url || '';
+          } catch {}
+          // Load pivot sheets for analyze tab
+          await this.loadPivotSheets();
+        },
+
+        switchTab(t) {
+          this.tab = t;
+          if (t === 'analyze') this.loadPivotSheets();
+        },
+
+        // ── Pipeline ────────────────────────────────────────────────────────
+        async startPipeline() {
+          this.step = 2;
+          this.collectProgress = {};
+          this.collectDone = false;
+          this.parseInfo = { started: false, totalJobs: 0, completedJobs: 0, totalUnits: 0, recordsDone: 0 };
+          this.pipelineError = '';
+          this.elapsed = 0;
+
+          // Start elapsed timer
+          this.elapsedTimer = setInterval(() => { this.elapsed++; }, 1000);
+
+          const selectedPlatforms = Object.entries(this.platforms)
+            .filter(([, v]) => v).map(([k]) => k);
+
+          // Initialise collect progress rows for selected platforms
+          for (const p of selectedPlatforms) {
+            this.collectProgress[p] = { done: false, posts: 0, comments: 0, error: null };
+          }
+
+          // Start job
+          let res;
+          try {
+            res = await fetch('/api/pipeline/start', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                keywords: this.keywords.split(',').map(k => k.trim()).filter(Boolean),
+                date_from: this.dateFrom,
+                date_to: this.dateTo,
+                platforms: selectedPlatforms,
+                ptt_boards: this.pttBoards.split(',').map(b => b.trim()).filter(Boolean),
+                max_posts: this.maxPosts,
+                paste_text: this.pasteText,
+              }),
+            });
+          } catch (e) {
+            this.pipelineError = String(e);
+            clearInterval(this.elapsedTimer);
+            return;
+          }
+
+          const { job_id } = await res.json();
+          this.jobId = job_id;
+
+          // Open SSE stream
+          const es = new EventSource(`/api/pipeline/stream/${job_id}`);
+          es.onmessage = (e) => {
+            const ev = JSON.parse(e.data);
+            this.handlePipelineEvent(ev);
+            if (ev.type === 'done' || ev.type === 'error' || ev.type === 'cancelled') {
+              es.close();
+            }
+          };
+          es.onerror = () => {
+            es.close();
+            clearInterval(this.elapsedTimer);
+          };
+        },
+
+        handlePipelineEvent(ev) {
+          if (ev.type === 'collect_start') {
+            if (!this.collectProgress[ev.platform]) {
+              this.collectProgress[ev.platform] = { done: false, posts: 0, error: null };
+            }
+          } else if (ev.type === 'collect_done') {
+            this.collectProgress[ev.platform] = { done: true, posts: ev.posts, comments: ev.comments, error: null };
+          } else if (ev.type === 'collect_error') {
+            if (this.collectProgress[ev.platform]) {
+              this.collectProgress[ev.platform].error = ev.error;
+              this.collectProgress[ev.platform].done = true;
+            }
+          } else if (ev.type === 'parse_start') {
+            this.collectDone = true;
+            this.parseInfo.started = true;
+            this.parseInfo.totalJobs = ev.total_jobs;
+            this.parseInfo.totalUnits = ev.total_units;
+          } else if (ev.type === 'parse_chunk_done') {
+            this.parseInfo.completedJobs = ev.completed_jobs;
+            this.parseInfo.totalJobs = ev.total_jobs;
+            this.parseInfo.recordsDone = ev.records_done;
+          } else if (ev.type === 'parse_done') {
+            this.parseInfo.completedJobs = this.parseInfo.totalJobs;
+          } else if (ev.type === 'done') {
+            clearInterval(this.elapsedTimer);
+            this.loadSheetStats();
+          } else if (ev.type === 'error') {
+            this.pipelineError = ev.message;
+            clearInterval(this.elapsedTimer);
+          }
+        },
+
+        async loadSheetStats() {
+          try {
+            const res = await fetch('/api/sheets/a/stats');
+            this.sheetStats = await res.json();
+          } catch {}
+          this.step = 3;
+        },
+
+        async cancelPipeline() {
+          if (this.jobId) {
+            await fetch(`/api/pipeline/cancel/${this.jobId}`, { method: 'POST' });
+          }
+          clearInterval(this.elapsedTimer);
+          this.step = 1;
+        },
+
+        async approve() {
+          this.approving = true;
+          try {
+            const res = await fetch('/api/pipeline/approve', { method: 'POST' });
+            this.approveResult = await res.json();
+            this.step = 4;
+          } catch (e) {
+            alert('승인 실패: ' + e);
+          } finally {
+            this.approving = false;
+          }
+        },
+
+        resetPipeline() {
+          this.step = 1;
+          this.reviewChecked = false;
+          this.approveResult = null;
+          this.pipelineError = '';
+          this.sheetStats = null;
+          this.pasteText = '';
+        },
+
+        // ── Analyze ─────────────────────────────────────────────────────────
+        async loadPivotSheets() {
+          try {
+            const res = await fetch('/api/analyze/pivot-sheets');
+            const data = await res.json();
+            this.pivotSheets = data.sheets || [];
+          } catch {}
+        },
+
+        get dateRangeInvalid() {
+          return this.analyzeFrom && this.analyzeTo && this.analyzeFrom > this.analyzeTo;
+        },
+
+        analyzeLabel() {
+          if (!this.analyzeTo) return '날짜';
+          if (!this.analyzeFrom || this.analyzeFrom === this.analyzeTo) return this.analyzeTo;
+          return this.analyzeFrom + '_' + this.analyzeTo;
+        },
+
+        async generatePivot() {
+          this.pivotStatus = 'running';
+          this.pivotError = '';
+          try {
+            const res = await fetch('/api/analyze/pivot', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ analysis_date: this.analyzeTo, trend_start: this.trendStart }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+              this.pivotStatus = 'done';
+              this.pivotSheet = this.analyzeLabel();
+              await this.loadPivotSheets();
+            } else {
+              this.pivotStatus = 'error';
+              this.pivotError = data.error;
+            }
+          } catch (e) {
+            this.pivotStatus = 'error';
+            this.pivotError = String(e);
+          }
+        },
+
+        async generateSummary() {
+          this.summaryStatus = 'running';
+          this.summaryError = '';
+          this.summaryProgress = { ko_done: 0, ko_total: 0, ja_done: 0, ja_total: 0 };
+
+          let res;
+          try {
+            res = await fetch('/api/analyze/summary/start', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ analysis_date: this.analyzeTo }),
+            });
+          } catch (e) {
+            this.summaryStatus = 'error';
+            this.summaryError = String(e);
+            return;
+          }
+          const { job_id } = await res.json();
+
+          const es = new EventSource(`/api/analyze/summary/stream/${job_id}`);
+          es.onmessage = (e) => {
+            const ev = JSON.parse(e.data);
+            if (ev.type === 'stage') {
+              if (ev.stage === 'ko') this.summaryProgress.ko_total = ev.total;
+              if (ev.stage === 'ja') this.summaryProgress.ja_total = ev.total;
+            } else if (ev.type === 'progress') {
+              if (ev.stage === 'ko') this.summaryProgress.ko_done = ev.done;
+              if (ev.stage === 'ja') this.summaryProgress.ja_done = ev.done;
+            } else if (ev.type === 'done') {
+              this.summaryStatus = 'done';
+              this.summarySheet = this.analyzeLabel();
+              es.close();
+            } else if (ev.type === 'error') {
+              this.summaryStatus = 'error';
+              this.summaryError = ev.message;
+              es.close();
+            }
+          };
+          es.onerror = () => {
+            es.close();
+            if (this.summaryStatus === 'running') {
+              this.summaryStatus = 'error';
+              this.summaryError = '연결 오류';
+            }
+          };
+        },
+
+        async exportXlsx(sheet) {
+          this.exportingSheet = sheet;
+          try {
+            const res = await fetch(`/api/analyze/export/${encodeURIComponent(sheet)}`, {
+              method: 'POST',
+            });
+            if (res.ok && res.headers.get('content-type')?.includes('spreadsheet')) {
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = sheet + '.xlsx';
+              a.click();
+              URL.revokeObjectURL(url);
+            } else {
+              const data = await res.json();
+              alert('내보내기 실패: ' + (data.error || '알 수 없는 오류'));
+            }
+          } catch (e) {
+            alert('내보내기 실패: ' + e);
+          } finally {
+            this.exportingSheet = null;
+          }
+        },
+      };
+    }
+  </script>
+</body>
+</html>

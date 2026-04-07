@@ -1,0 +1,28 @@
+# 비밀/인증
+.env
+.env.*
+keys/
+
+# Python 캐시
+*.pyc
+*.pyo
+__pycache__/
+
+# Mac/R 자동 생성
+.DS_Store
+.Rhistory
+
+# Claude Code 로컬 설정
+.claude/
+
+# 결과물/데이터 (Google 시트에 저장되므로 Git 불필요)
+exports/
+data/
+
+# 이상한 pip 아티팩트
+=*
+
+# 테스트/임시 입력 파일
+test_*.txt
+sample_input*.txt
+test_input_*.txt

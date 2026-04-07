@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: sns-report
+    runtime: docker
+    plan: free            # 메모리 부족으로 OOM 발생 시 starter → standard 로 변경
+    region: singapore     # 한국·대만에서 가장 가까움
+    healthCheckPath: /
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false       # Render 대시보드에서 직접 입력
+      - key: SPREADSHEET_ID
+        sync: false
+      - key: GOOGLE_APPLICATION_CREDENTIALS_JSON
+        sync: false       # service_account.json 의 전체 내용을 그대로 붙여넣기
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: /tmp/sa.json   # 위 JSON 을 런타임에 이 경로로 기록
+      - key: PARSE_CONCURRENCY
+        value: "2"
+      - key: D_SUMMARY_CONCURRENCY
+        value: "3"
+      - key: LLM_INTER_CALL_DELAY_SEC
+        value: "1.0"
+      - key: PIVOT_CREATE_CHARTS
+        value: "0"
