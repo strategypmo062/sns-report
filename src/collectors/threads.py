@@ -99,7 +99,8 @@ class ThreadsCollector(BaseCollector):
         # Required for Linux container environments (e.g. Render, Docker)
         co.set_argument("--no-sandbox")
         co.set_argument("--disable-dev-shm-usage")
-        co.set_argument("--window-position=-2400,-2400")  # 화면 밖
+        # Threads has no Cloudflare, so headless mode works fine in containers
+        co.set_argument("--headless=new")
 
         self._browser = Chromium(co)
         self._tab = self._browser.latest_tab
