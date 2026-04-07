@@ -198,7 +198,7 @@ python3 src/run_verify_last_parse_integrity.py input_file.txt
 ## 8. 다음 작업 (우선순위)
 
 1. 수집 자동화 나머지 플랫폼 구현 (~~Threads~~ 완료 → YouTube → Mobile01)
-2. ~~DCard 수집 대안 검토 (Cloudflare Turnstile 차단 중)~~ → 완료 (DrissionPage 전환)
+2. ~~DCard 수집 자동화~~ → **포기 확정**: Render 클라우드 IP를 Cloudflare가 차단. DCard는 로컬 수동 복붙으로 운영.
 3. **LLM 번역 파이프라인 2단계 분리 검토**
    - 현재: 1회 호출로 분류+번역+구조화 → 중국어→한국어 번역 누락 빈발 (후처리 `_fix_untranslated_records`로 보완 중)
    - 개선안(B): 1단계 번역(중→한) → 2단계 분류/구조화로 분리하면 번역 누락 원천 차단
@@ -206,15 +206,16 @@ python3 src/run_verify_last_parse_integrity.py input_file.txt
 4. ~~웹 폼 구현~~ → 완료 (FastAPI 웹앱 `api/` 디렉토리)
 5. ~~API 엔드포인트 래핑~~ → 완료
 6. 사용자 수정 학습 품질 개선
-7. **배포 방식 검토 (미확정)**
-   - DCard 수집기가 실제 Chrome + 가상 디스플레이를 요구하므로 Vercel(서버리스) 불가
-   - 유력 후보: Docker (Xvfb + Chrome + Python) — AWS/GCP/사내 서버 어디든 가능
-   - PTT 등 다른 수집기는 단순 HTTP라 배포 환경 제약 없음
-   - 배포 인프라 확정 후 DCard 수집 전략 재검토 필요
+7. **배포 방식**: Render(Docker) 확정. DCard 자동 수집은 포기, 웹앱 UI에서 제거.
 
 ---
 
 ## 9. 작업 기록 (변경 이력)
+
+### 2026-04-08 (Policy: DCard 자동 수집 포기 → 수동 붙여넣기로 전환)
+- **결정**: Render 클라우드 IP가 Cloudflare에 의해 차단됨을 확인. patchright(Chromium), camoufox(Firefox), playwright 모두 CF clearance FAILED. IP 평판 문제로 브라우저 stealth로는 해결 불가.
+- **`api/static/index.html`**: 자동 수집 플랫폼에서 DCard 체크박스 제거. 직접 붙여넣기 헬프 텍스트를 "PTT·Threads 외 SNS(DCard, YouTube, Mobile01 등)는 링크와 텍스트를 여기에 직접 붙여넣으세요."로 변경.
+- **운영 방식**: DCard는 로컬 맥북에서 수동으로 복붙해서 파싱.
 
 ### 2026-04-08 (Fix: DCard 수집기 patchright → camoufox 교체)
 - **배경**: Render 배포 환경에서 patchright(Chromium 기반)가 CF Turnstile 통과에 실패 → 수집 0건. camoufox(Firefox 기반 stealth 브라우저)로 교체해 CF 우회 성공률을 높임.
@@ -381,7 +382,7 @@ python3 src/run_verify_last_parse_integrity.py input_file.txt
   - 서버 실행: `/usr/local/bin/python3.13 -m uvicorn main:app --app-dir api --port 8000`
 - **웹앱 UI 정책**
   - 포인트 색상: `#06C755` (LINE 그린)
-  - 수집 플랫폼: PTT(Gossiping, MobileComm 고정), DCard, **Threads**(기본 unchecked) 표시 — YouTube/Mobile01 미표시
+  - 수집 플랫폼: PTT(Gossiping, MobileComm 고정), **Threads**(기본 unchecked) 표시 — DCard·YouTube·Mobile01 미표시 (DCard는 수동 붙여넣기 안내)
   - Threads는 DrissionPage 브라우저 자동화 사용, 속도가 느리므로 기본 unchecked
   - 분석 탭 날짜 범위 검증: 종료일 < 시작일이면 에러 표시 + 버튼 비활성화
   - 기간 지정 시 시트명 형식: `C_pivot_2026-04-01_2026-04-03`

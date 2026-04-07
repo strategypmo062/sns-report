@@ -145,7 +145,7 @@
           <!-- 직접 붙여넣기 -->
           <div>
             <h2 class="text-sm font-semibold text-gray-700 mb-1 uppercase tracking-wide">직접 붙여넣기 <span class="text-xs font-normal text-gray-400 normal-case">(선택)</span></h2>
-            <p class="text-xs text-gray-400 mb-3">PTT·DCard 외 SNS(YouTube, Mobile01 등)는 링크와 텍스트를 여기에 직접 붙여넣으세요.</p>
+            <p class="text-xs text-gray-400 mb-3">PTT·Threads 외 SNS(DCard, YouTube, Mobile01 등)는 링크와 텍스트를 여기에 직접 붙여넣으세요.</p>
             <textarea
               x-model="pasteText"
               rows="6"
@@ -545,7 +545,7 @@
         pttBoards: 'Gossiping,MobileComm',
         maxPosts: 30,
         pasteText: '',
-        platforms: { PTT: true, DCard: true, Threads: false },
+        platforms: { PTT: true, Threads: false },
         platformList: [],
 
         // Pipeline: Step 2 (progress)
@@ -607,13 +607,11 @@
             const activeSet = new Set((data.platforms || []).map(p => p.toLowerCase()));
             this.platformList = [
               { name: 'PTT',     active: activeSet.has('ptt') },
-              { name: 'DCard',   active: activeSet.has('dcard') },
               { name: 'Threads', active: activeSet.has('threads') },
             ];
           } catch {
             this.platformList = [
               { name: 'PTT',     active: true },
-              { name: 'DCard',   active: true },
               { name: 'Threads', active: false },
             ];
           }
