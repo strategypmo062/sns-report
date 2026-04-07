@@ -30,7 +30,7 @@ _CF_TITLE_MARKERS = ("Just a moment", "Cloudflare", "Checking your browser")
 
 class DCardCollector(BaseCollector):
     def __init__(self):
-        self._cam = None       # Camoufox instance
+        self._pw = None        # sync_playwright instance
         self._browser = None   # Playwright Browser
         self._context = None   # BrowserContext
         self._page = None
@@ -42,7 +42,7 @@ class DCardCollector(BaseCollector):
 
     def is_configured(self) -> bool:
         try:
-            import camoufox  # noqa: F401
+            from playwright.sync_api import sync_playwright  # noqa: F401
             return True
         except ImportError:
             return False
@@ -91,36 +91,46 @@ class DCardCollector(BaseCollector):
     # ── browser lifecycle ───────────────────────────────────────────────────
 
     def _start_browser(self) -> None:
-        from camoufox.sync_api import Camoufox
+        from playwright.sync_api import sync_playwright
 
         is_server = bool(os.environ.get("RENDER") or os.environ.get("DOCKER"))
-        # headless=True: Firefox native headless, avoids Xvfb double-spawn
-        # conflict with the xvfb-run already wrapping the process in Dockerfile CMD.
-        headless = True if is_server else False
 
-        print(f"  [DCard] Starting camoufox (headless={headless!r}) ...")
+        print("  [DCard] Starting playwright chromium ...")
         try:
-            self._cam = Camoufox(headless=headless)
-            print("  [DCard] Camoufox instance created, entering context ...")
-            self._browser = self._cam.__enter__()
-            print("  [DCard] Browser process launched ✓")
+            self._pw = sync_playwright().start()
+            print("  [DCard] playwright started ✓")
         except Exception as e:
-            print(f"  [DCard] Camoufox launch failed: {e}")
-            self._cam = None
-            self._browser = None
+            print(f"  [DCard] sync_playwright().start() failed: {e}")
+            self._pw = None
+            return
+
+        chromium_args = ["--no-sandbox", "--disable-dev-shm-usage"] if is_server else []
+        executable = "/usr/bin/chromium" if is_server else None
+        print(f"  [DCard] Launching chromium (executable={executable!r}) ...")
+        try:
+            self._browser = self._pw.chromium.launch(
+                headless=True,
+                executable_path=executable,
+                args=chromium_args,
+            )
+            print("  [DCard] Browser launched ✓")
+        except Exception as e:
+            print(f"  [DCard] Browser launch failed: {e}")
+            self._stop_browser()
             return
 
         print("  [DCard] Opening page ...")
         try:
-            self._page = self._browser.new_page()
-            self._context = self._page.context
-            self._page.set_extra_http_headers({"Accept-Language": "zh-TW,zh;q=0.9"})
+            self._context = self._browser.new_context(
+                locale="zh-TW",
+                extra_http_headers={"Accept-Language": "zh-TW,zh;q=0.9"},
+            )
+            self._page = self._context.new_page()
+            print("  [DCard] Page opened ✓")
         except Exception as e:
             print(f"  [DCard] Failed to open page: {e}")
             self._stop_browser()
             return
-
-        print("  [DCard] Launched camoufox (Firefox stealth)")
 
         if not self._ensure_clearance():
             print("  [DCard] Cloudflare clearance FAILED — collection may return empty")
@@ -139,13 +149,18 @@ class DCardCollector(BaseCollector):
             except Exception:
                 pass
             self._context = None
-        if self._cam is not None:
+        if self._browser is not None:
             try:
-                self._cam.__exit__(None, None, None)
+                self._browser.close()
             except Exception:
                 pass
-            self._cam = None
             self._browser = None
+        if self._pw is not None:
+            try:
+                self._pw.stop()
+            except Exception:
+                pass
+            self._pw = None
 
     # ── Cloudflare clearance ────────────────────────────────────────────────
 
