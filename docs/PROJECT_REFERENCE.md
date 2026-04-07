@@ -246,6 +246,13 @@ python3 src/run_verify_last_parse_integrity.py input_file.txt
 - **알려진 위험**: ① Render 무료/Starter 플랜 메모리 512MB 한계 — Chromium 부팅 시 OOM 가능성, 발생 시 `plan: standard`로 업그레이드. ② Cloudflare Turnstile이 클라우드 IP 대역을 차단하는 경향 — DCard 수집은 Render에서 실패할 가능성 있음. 실패 시 DCard는 로컬 Mac에서 수동 수집으로 처리(사용자 결정 사항).
 - **인증**: 미구현(보류). Render URL을 팀 외부에 공유 금지. 후속 작업 후보: HTTP Basic Auth 또는 Cloudflare Tunnel + Cloudflare Access.
 - **검증 절차**: 빌드 성공 → `/` 200 → Sheets 호출 1회 → Threads 수집 1회 → DCard 1회(베스트 에포트) → Render Metrics에서 RAM 모니터링.
+- **실제 배포 후 확인된 사항 (2026-04-07)**:
+  - `api/pipeline_adapter.py::_load_env()` — `os.environ` 우선 읽도록 수정 (Render 환경변수 인식 안 되던 문제 해결)
+  - `.dockerignore`에서 `*.txt` → 구체적 패턴으로 변경 (`requirements.txt` 빌드 컨텍스트 제외 버그 수정)
+  - `src/collectors/dcard.py`, `src/collectors/threads.py` — `--no-sandbox`, `--disable-dev-shm-usage` 추가 (Linux 컨테이너 Chrome 실행 필수)
+  - `src/collectors/threads.py` — `--headless=new` 추가 (Xvfb 없이 안정적 실행, Threads는 Cloudflare 불필요)
+  - **DCard 확정 불가**: Cloudflare가 Render 클라우드 IP 차단 → Mac 수동 수집으로 운영
+  - **Render 무료 플랜 메모리 한계**: Chrome + LLM 동시 실행 시 OOM 발생. Standard($25/월) 또는 Cloudflare Tunnel + Mac 전환 검토 중
 
 ### 2026-04-07 (Threads 수집 품질 개선)
 - **`src/collectors/threads.py` — `_clean_text()`** UI 노이즈 필터 추가
