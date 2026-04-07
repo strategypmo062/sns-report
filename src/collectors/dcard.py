@@ -94,8 +94,8 @@ class DCardCollector(BaseCollector):
         from camoufox.sync_api import Camoufox
 
         is_server = bool(os.environ.get("RENDER") or os.environ.get("DOCKER"))
-        # Firefox native headless works well on server; no xvfb dependency needed.
-        headless = True if is_server else False
+        # "virtual" lets camoufox manage its own xvfb display on server.
+        headless = "virtual" if is_server else False
 
         try:
             self._cam = Camoufox(
