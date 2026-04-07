@@ -4,9 +4,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# Chromium (Threads collector용 DrissionPage) + Xvfb + 동아시아 폰트.
-# camoufox(DCard collector)는 자체 Firefox 바이너리를 사용하므로 별도 Chrome 불필요.
-# libgtk-3-0 등은 camoufox Firefox 런타임 의존성 (slim 이미지에 미포함).
+# Chromium (DCard patchright + Threads DrissionPage 공용) + Xvfb + 동아시아 폰트.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         chromium \
         chromium-driver \
@@ -15,14 +13,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-noto-cjk \
         fonts-noto-color-emoji \
         ca-certificates \
-        libgtk-3-0 \
-        libdbus-glib-1-2 \
-        libasound2 \
-        libxt6 \
-        libx11-xcb1 \
-        libxcomposite1 \
-        libxdamage1 \
-        libxrandr2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -30,8 +20,8 @@ WORKDIR /app
 # requirements.txt를 먼저 복사해 캐시 활용
 COPY requirements.txt .
 RUN pip install -r requirements.txt
-# camoufox Firefox 바이너리 다운로드 (DCard collector용)
-RUN python -m camoufox fetch
+# patchright bundled chromium (로컬 fallback용)
+RUN patchright install chromium
 
 # 나머지 소스 복사
 COPY . .

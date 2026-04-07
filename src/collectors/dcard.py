@@ -1,11 +1,14 @@
-"""DCard (dcard.tw) collector using camoufox (Firefox stealth browser).
+"""DCard (dcard.tw) collector using patchright (stealth Playwright fork).
 
-DCard is behind Cloudflare. camoufox ships a patched Firefox build that
-hides automation fingerprints and is effective against CF Turnstile.
+DCard is behind Cloudflare. patchright patches Chromium's key automation
+detection vectors (Runtime.enable, navigator.webdriver, console API, etc.)
+and is effective against CF Bot Management.
+
+On Render/Docker the system chromium binary is used directly so no separate
+browser download is needed (Dockerfile installs chromium package).
 
 Install:
-    pip install camoufox[geoip]
-    python -m camoufox fetch
+    pip install patchright>=1.40.0
 """
 
 from __future__ import annotations
@@ -30,7 +33,7 @@ _CF_TITLE_MARKERS = ("Just a moment", "Cloudflare", "Checking your browser")
 
 class DCardCollector(BaseCollector):
     def __init__(self):
-        self._pw = None        # sync_playwright instance
+        self._pw = None        # patchright sync_playwright instance
         self._browser = None   # Playwright Browser
         self._context = None   # BrowserContext
         self._page = None
@@ -42,7 +45,7 @@ class DCardCollector(BaseCollector):
 
     def is_configured(self) -> bool:
         try:
-            from playwright.sync_api import sync_playwright  # noqa: F401
+            from patchright.sync_api import sync_playwright  # noqa: F401
             return True
         except ImportError:
             return False
@@ -91,27 +94,31 @@ class DCardCollector(BaseCollector):
     # ── browser lifecycle ───────────────────────────────────────────────────
 
     def _start_browser(self) -> None:
-        from playwright.sync_api import sync_playwright
+        from patchright.sync_api import sync_playwright
 
         is_server = bool(os.environ.get("RENDER") or os.environ.get("DOCKER"))
 
-        print("  [DCard] Starting playwright chromium ...")
+        print("  [DCard] Starting patchright ...")
         try:
             self._pw = sync_playwright().start()
-            print("  [DCard] playwright started ✓")
+            print("  [DCard] patchright started ✓")
         except Exception as e:
             print(f"  [DCard] sync_playwright().start() failed: {e}")
             self._pw = None
             return
 
-        chromium_args = ["--no-sandbox", "--disable-dev-shm-usage"] if is_server else []
+        # On server use system chromium (already installed via apt).
+        # Locally fall back to patchright's bundled chromium.
+        args = ["--lang=zh-TW"]
+        if is_server:
+            args.extend(["--no-sandbox", "--disable-dev-shm-usage"])
         executable = "/usr/bin/chromium" if is_server else None
-        print(f"  [DCard] Launching chromium (executable={executable!r}) ...")
+        print(f"  [DCard] Launching chromium (server={is_server}) ...")
         try:
             self._browser = self._pw.chromium.launch(
                 headless=True,
                 executable_path=executable,
-                args=chromium_args,
+                args=args,
             )
             print("  [DCard] Browser launched ✓")
         except Exception as e:
