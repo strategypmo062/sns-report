@@ -1,16 +1,11 @@
-"""DCard (dcard.tw) collector using patchright (stealth Playwright fork).
+"""DCard (dcard.tw) collector using camoufox (Firefox stealth browser).
 
-DCard is behind Cloudflare. patchright patches the key detection vectors
-that vanilla Playwright leaks (Runtime.enable, console API, automation
-flags, navigator.webdriver) and is recommended for CF bypass.
-
-We use ``launch_persistent_context`` so that the user-data-dir caches
-Cloudflare's cookies and profile state across runs — no manual cookie
-caching required.
+DCard is behind Cloudflare. camoufox ships a patched Firefox build that
+hides automation fingerprints and is effective against CF Turnstile.
 
 Install:
-    pip install patchright
-    patchright install chrome   # or: patchright install chromium
+    pip install camoufox[geoip]
+    python -m camoufox fetch
 """
 
 from __future__ import annotations
@@ -19,7 +14,6 @@ import json
 import os
 import time
 from datetime import date, datetime
-from pathlib import Path
 
 from .base import BaseCollector, CollectedPost, CollectedComment
 from .rate_limiter import RateLimiter
@@ -36,8 +30,9 @@ _CF_TITLE_MARKERS = ("Just a moment", "Cloudflare", "Checking your browser")
 
 class DCardCollector(BaseCollector):
     def __init__(self):
-        self._pw = None
-        self._context = None
+        self._cam = None       # Camoufox instance
+        self._browser = None   # Playwright Browser
+        self._context = None   # BrowserContext
         self._page = None
         self._limiter = RateLimiter(2.0)
 
@@ -47,7 +42,7 @@ class DCardCollector(BaseCollector):
 
     def is_configured(self) -> bool:
         try:
-            from patchright.sync_api import sync_playwright  # noqa: F401
+            import camoufox  # noqa: F401
             return True
         except ImportError:
             return False
@@ -96,70 +91,37 @@ class DCardCollector(BaseCollector):
     # ── browser lifecycle ───────────────────────────────────────────────────
 
     def _start_browser(self) -> None:
-        from patchright.sync_api import sync_playwright
+        from camoufox.sync_api import Camoufox
 
         is_server = bool(os.environ.get("RENDER") or os.environ.get("DOCKER"))
-
-        # Persistent context dir holds cookies + Chrome profile state across
-        # runs, so we don't need a separate cookie cache file.
-        default_dir = "/tmp/dcard-profile" if is_server else ".cache/dcard-profile"
-        user_data_dir = os.environ.get("DCARD_USER_DATA_DIR", default_dir)
-        Path(user_data_dir).mkdir(parents=True, exist_ok=True)
-
-        # patchright README's stealth recommendation: real Chrome channel,
-        # headed mode (xvfb on server), no_viewport=True, no custom UA.
-        args = [
-            "--lang=zh-TW",
-        ]
-        if is_server:
-            args.extend(["--no-sandbox", "--disable-dev-shm-usage"])
-        else:
-            # Local: shove the headed window offscreen so it doesn't pop up.
-            args.append("--window-position=-2400,-2400")
+        # Firefox native headless works well on server; no xvfb dependency needed.
+        headless = True if is_server else False
 
         try:
-            self._pw = sync_playwright().start()
-        except Exception as e:
-            print(f"  [DCard] sync_playwright().start() failed: {e}")
-            self._pw = None
-            return
-
-        # Try Chrome channel first, fall back to bundled chromium if Chrome
-        # is missing on this host.
-        last_err: Exception | None = None
-        for channel in ("chrome", None):
-            try:
-                self._context = self._pw.chromium.launch_persistent_context(
-                    user_data_dir=user_data_dir,
-                    channel=channel,
-                    headless=False,
-                    no_viewport=True,
-                    locale="zh-TW",
-                    args=args,
-                )
-                if channel:
-                    print(f"  [DCard] Launched patchright with channel={channel}")
-                else:
-                    print("  [DCard] Launched patchright with bundled chromium")
-                break
-            except Exception as e:
-                last_err = e
-                self._context = None
-        if self._context is None:
-            print(f"  [DCard] Failed to launch browser: {last_err}")
-            self._stop_browser()
-            return
-
-        try:
-            self._page = (
-                self._context.pages[0]
-                if self._context.pages
-                else self._context.new_page()
+            self._cam = Camoufox(
+                headless=headless,
+                geoip=True,
+                locale="zh-TW",
             )
+            self._browser = self._cam.__enter__()
+        except Exception as e:
+            print(f"  [DCard] Camoufox launch failed: {e}")
+            self._cam = None
+            self._browser = None
+            return
+
+        try:
+            self._context = self._browser.new_context(
+                locale="zh-TW",
+                extra_http_headers={"Accept-Language": "zh-TW,zh;q=0.9"},
+            )
+            self._page = self._context.new_page()
         except Exception as e:
             print(f"  [DCard] Failed to open page: {e}")
             self._stop_browser()
             return
+
+        print("  [DCard] Launched camoufox (Firefox stealth)")
 
         if not self._ensure_clearance():
             print("  [DCard] Cloudflare clearance FAILED — collection may return empty")
@@ -171,30 +133,27 @@ class DCardCollector(BaseCollector):
             print("  [DCard] Browser ready")
 
     def _stop_browser(self) -> None:
+        self._page = None
         if self._context is not None:
             try:
                 self._context.close()
             except Exception:
                 pass
             self._context = None
-        if self._pw is not None:
+        if self._cam is not None:
             try:
-                self._pw.stop()
+                self._cam.__exit__(None, None, None)
             except Exception:
                 pass
-            self._pw = None
-        self._page = None
+            self._cam = None
+            self._browser = None
 
     # ── Cloudflare clearance ────────────────────────────────────────────────
 
     def _ensure_clearance(self) -> bool:
-        """Try the persistent context first; if cookies are stale, do a fresh
-        homepage load and poll until Cloudflare lets us through."""
+        """Load the DCard homepage and poll until Cloudflare lets us through."""
         max_wait = float(os.environ.get("DCARD_CF_WAIT_SEC", "30"))
 
-        # Fast path: persistent context may already have valid CF cookies.
-        # Going straight to a lightweight API endpoint avoids re-running the
-        # interstitial and is the cheapest possible probe.
         try:
             self._page.goto("https://www.dcard.tw/", wait_until="domcontentloaded", timeout=20000)
         except Exception as e:
@@ -204,7 +163,7 @@ class DCardCollector(BaseCollector):
             return True
 
         # Slow path: one explicit reload, longer wait.
-        print("  [DCard] Persistent context didn't pass — retrying clearance")
+        print("  [DCard] CF not cleared — retrying with full page load")
         try:
             self._page.goto("https://www.dcard.tw/", wait_until="load", timeout=30000)
         except Exception as e:
@@ -237,12 +196,7 @@ class DCardCollector(BaseCollector):
     # ── API helpers ─────────────────────────────────────────────────────────
 
     def _js_fetch_raw(self, path: str) -> dict | list | None:
-        """Run fetch() inside the page without rate limiting (used by probes).
-
-        Note: we keep ``isolated_context=True`` (patchright default) so the
-        evaluation runs in an isolated world. This is what hides patchright
-        from CDP-based detection — DO NOT pass ``isolated_context=False``.
-        """
+        """Run fetch() inside the page without rate limiting (used by probes)."""
         js = """
         (path) => fetch(path)
             .then(r => r.ok ? r.json() : Promise.reject(r.status))

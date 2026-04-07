@@ -4,11 +4,8 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# Chromium (Threads collector용 DrissionPage) + google-chrome-stable
-# (DCard collector용 patchright) + Xvfb + 동아시아 폰트.
-# - chromium: DrissionPage가 사용 (Threads collector)
-# - google-chrome-stable: patchright가 channel="chrome"으로 사용 (DCard collector)
-#   patchright는 정식 Chrome에서 stealth 패치가 가장 강력함.
+# Chromium (Threads collector용 DrissionPage) + Xvfb + 동아시아 폰트.
+# camoufox(DCard collector)는 자체 Firefox 바이너리를 사용하므로 별도 Chrome 불필요.
 # 패키지 설치 시 apt가 필요한 런타임 라이브러리(libnss3, libgbm1 등)도 같이 끌어옴.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         chromium \
@@ -18,14 +15,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-noto-cjk \
         fonts-noto-color-emoji \
         ca-certificates \
-        wget \
-        gnupg \
-    && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub \
-        | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
-    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
-        > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -33,8 +22,8 @@ WORKDIR /app
 # requirements.txt를 먼저 복사해 캐시 활용
 COPY requirements.txt .
 RUN pip install -r requirements.txt
-# patchright fallback chromium (channel="chrome" 실패 시 대비)
-RUN patchright install chromium
+# camoufox Firefox 바이너리 다운로드 (DCard collector용)
+RUN python -m camoufox fetch
 
 # 나머지 소스 복사
 COPY . .

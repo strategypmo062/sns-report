@@ -216,6 +216,19 @@ python3 src/run_verify_last_parse_integrity.py input_file.txt
 
 ## 9. 작업 기록 (변경 이력)
 
+### 2026-04-08 (Fix: DCard 수집기 patchright → camoufox 교체)
+- **배경**: Render 배포 환경에서 patchright(Chromium 기반)가 CF Turnstile 통과에 실패 → 수집 0건. camoufox(Firefox 기반 stealth 브라우저)로 교체해 CF 우회 성공률을 높임.
+- **`src/collectors/dcard.py` 수정**
+  - import: `patchright.sync_api.sync_playwright` → `camoufox.sync_api.Camoufox`
+  - `_start_browser()`: `launch_persistent_context(channel="chrome")` 제거 → `Camoufox(headless=..., geoip=True, os="mac", locale="zh-TW").__enter__()` + `browser.new_context()` + `new_page()`.
+  - 서버 환경(`RENDER` / `DOCKER`)에서 `headless=True` (Firefox native headless, xvfb 불필요). 로컬은 `headless=False`.
+  - `_stop_browser()`: `_pw.stop()` → `_cam.__exit__()`.
+  - `_js_fetch_raw()` / `_js_fetch()`: `isolated_context=True` 파라미터·주석 제거 (patchright 전용).
+  - persistent context / user_data_dir / `DCARD_USER_DATA_DIR` env 제거 (camoufox는 매 세션 fresh 시작).
+- **`Dockerfile` 수정** — google-chrome-stable 설치 블록(wget, gnupg, GPG key, apt repo) 전체 제거. `patchright install chromium` → `python -m camoufox fetch`.
+- **`requirements.txt`** — `patchright>=1.40.0` → `camoufox[geoip]`.
+- **호출부 영향 없음**: `BaseCollector.collect()` 시그니처 그대로, `get_collector("DCard")` 그대로.
+
 ### 2026-04-07 (Fix: DCard CF 우회를 patchright로 교체)
 - **배경**: DrissionPage + 수동 쿠키 캐시 조합이 Cloudflare의 신규 탐지 벡터(특히 `Runtime.enable` CDP 명령 누출)에는 점진적으로 약해짐. patchright는 Playwright의 stealth fork로 이 누출 지점들을 패치하므로 CF 통과율이 더 높음.
 - **`src/collectors/dcard.py` 전면 재작성** — DrissionPage → patchright `sync_playwright` 로 전환.
