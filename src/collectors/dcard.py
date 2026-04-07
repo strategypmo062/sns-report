@@ -94,8 +94,9 @@ class DCardCollector(BaseCollector):
         from camoufox.sync_api import Camoufox
 
         is_server = bool(os.environ.get("RENDER") or os.environ.get("DOCKER"))
-        # "virtual" lets camoufox manage its own xvfb display on server.
-        headless = "virtual" if is_server else False
+        # headless=True: Firefox native headless, avoids Xvfb double-spawn
+        # conflict with the xvfb-run already wrapping the process in Dockerfile CMD.
+        headless = True if is_server else False
 
         print(f"  [DCard] Starting camoufox (headless={headless!r}) ...")
         try:
