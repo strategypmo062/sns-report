@@ -9,8 +9,11 @@ __pycache__
 .env.*
 keys/
 *.xlsx
-*.txt
 docs/
+test_*.txt
+sample_input*.txt
+test_input_*.txt
+collected_*.txt
 .DS_Store
 .idea
 .vscode
