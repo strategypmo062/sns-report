@@ -101,7 +101,6 @@ class DCardCollector(BaseCollector):
         try:
             self._cam = Camoufox(
                 headless=headless,
-                geoip=True,
                 locale="zh-TW",
             )
             print("  [DCard] Camoufox instance created, entering context ...")
@@ -113,13 +112,13 @@ class DCardCollector(BaseCollector):
             self._browser = None
             return
 
-        print("  [DCard] Creating context & page ...")
+        print("  [DCard] Opening page ...")
         try:
-            self._context = self._browser.new_context(
+            self._page = self._browser.new_page(
                 locale="zh-TW",
                 extra_http_headers={"Accept-Language": "zh-TW,zh;q=0.9"},
             )
-            self._page = self._context.new_page()
+            self._context = self._page.context
         except Exception as e:
             print(f"  [DCard] Failed to open page: {e}")
             self._stop_browser()
