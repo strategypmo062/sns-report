@@ -98,14 +98,15 @@ class ThreadsCollector(BaseCollector):
         co.set_argument("--no-first-run")
         co.auto_port()
 
-        # 서버(Render/Docker)에서만 헤드리스 + 샌드박스 해제.
-        # 로컬 Mac에서는 GUI 모드로 떠야 Chrome 146 + DrissionPage 4.1.x의
-        # CDP 핸드셰이크 404 문제를 회피할 수 있다.
+        # 서버(Render/Docker)에서는 샌드박스 해제 + shm 우회만 적용.
+        # --headless=new 는 Render의 Chromium + DrissionPage 4.1.x 조합에서도
+        # CDP 웹소켓 핸드셰이크 404를 유발하므로 제거.
+        # Render는 xvfb 가상 디스플레이(CMD: xvfb-run)가 뜨므로 headed 모드로
+        # 동작 가능하며 DCard 수집기도 동일 방식으로 동작 중.
         is_server = bool(os.environ.get("RENDER") or os.environ.get("DOCKER"))
         if is_server:
             co.set_argument("--no-sandbox")
             co.set_argument("--disable-dev-shm-usage")
-            co.set_argument("--headless=new")
 
         self._browser = Chromium(co)
         self._tab = self._browser.latest_tab

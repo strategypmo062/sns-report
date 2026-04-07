@@ -216,6 +216,12 @@ python3 src/run_verify_last_parse_integrity.py input_file.txt
 
 ## 9. 작업 기록 (변경 이력)
 
+### 2026-04-07 (Fix: Threads collector --headless=new 제거 — Render에서도 CDP 404 발생)
+- **`src/collectors/threads.py::_start_browser()` 수정** — 서버 환경(`RENDER`/`DOCKER`) 분기에서 `--headless=new` 제거. `--no-sandbox`와 `--disable-dev-shm-usage`는 유지.
+- **원인**: `--headless=new` + DrissionPage 4.1.x 조합이 로컬 Mac뿐 아니라 Render의 Chromium에서도 CDP 웹소켓 핸드셰이크 404를 유발. 진단 로그(`[mem]`)로 OOM이 아님을 확인 후 정확한 원인 특정.
+- **해결**: Render는 Dockerfile CMD에 `xvfb-run`이 가상 디스플레이를 띄우므로 headed 모드로 동작 가능. DCard 수집기도 동일 방식(--headless 없음)으로 이미 정상 동작 중.
+- **메모리 진단 결과**: `parse_start` 시점 RSS ~135-166MB로 512MB 한계와 충분한 여유. OOM이 원인이 아니었음.
+
 ### 2026-04-07 (Render Free OOM 진단용 메모리 로깅 추가)
 - **`api/pipeline_adapter.py` 수정** — `_log_mem(label)` 헬퍼 추가. `/proc/self/status` 의 VmRSS 와 `pgrep -c -f chrom` 결과를 한 줄로 출력 (Linux 외 환경에서도 안전, 추가 의존성 없음).
 - **호출 지점 4곳**: ① `collect_start {pname}` 직후, ② `collect_done {pname}` 직후, ③ `parse_start` 직후, ④ ThreadPoolExecutor `as_completed` 첫 진입(`completed == 1`).
