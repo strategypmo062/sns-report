@@ -1,13 +1,16 @@
-"""DCard (dcard.tw) collector using DrissionPage.
+"""DCard (dcard.tw) collector using patchright (stealth Playwright fork).
 
-DCard is behind Cloudflare Turnstile. DrissionPage launches real Chrome,
-passes the challenge, then uses in-page JavaScript fetch() to call
-DCard's internal API—sharing the browser's valid Cloudflare cookies.
+DCard is behind Cloudflare. patchright patches the key detection vectors
+that vanilla Playwright leaks (Runtime.enable, console API, automation
+flags, navigator.webdriver) and is recommended for CF bypass.
 
-Clearance cookies (cf_clearance) are cached on disk so that subsequent
-runs can skip the homepage wait as long as the cookie is still valid.
+We use ``launch_persistent_context`` so that the user-data-dir caches
+Cloudflare's cookies and profile state across runs — no manual cookie
+caching required.
 
-Install: pip install DrissionPage
+Install:
+    pip install patchright
+    patchright install chrome   # or: patchright install chromium
 """
 
 from __future__ import annotations
@@ -28,16 +31,14 @@ _SEARCH_PATH = f"{_API_BASE}/search/all"
 _POST_PATH = f"{_API_BASE}/posts/{{post_id}}"
 _COMMENTS_PATH = f"{_API_BASE}/posts/{{post_id}}/comments"
 
-# Cookies we want to persist across runs to skip the CF challenge.
-_CF_COOKIE_NAMES = {"cf_clearance", "__cf_bm", "__cflb", "_cfuvid"}
 _CF_TITLE_MARKERS = ("Just a moment", "Cloudflare", "Checking your browser")
-_COOKIE_CACHE_MAX_AGE_SEC = 24 * 60 * 60  # 24h
 
 
 class DCardCollector(BaseCollector):
     def __init__(self):
-        self._tab = None
-        self._browser = None
+        self._pw = None
+        self._context = None
+        self._page = None
         self._limiter = RateLimiter(2.0)
 
     @staticmethod
@@ -46,7 +47,7 @@ class DCardCollector(BaseCollector):
 
     def is_configured(self) -> bool:
         try:
-            from DrissionPage import Chromium  # noqa: F401
+            from patchright.sync_api import sync_playwright  # noqa: F401
             return True
         except ImportError:
             return False
@@ -65,7 +66,7 @@ class DCardCollector(BaseCollector):
         d_to = date.fromisoformat(date_to)
 
         self._start_browser()
-        if self._tab is None:
+        if self._page is None:
             print("  [DCard] Browser not ready — aborting collection")
             return []
 
@@ -95,122 +96,137 @@ class DCardCollector(BaseCollector):
     # ── browser lifecycle ───────────────────────────────────────────────────
 
     def _start_browser(self) -> None:
-        from DrissionPage import Chromium, ChromiumOptions
+        from patchright.sync_api import sync_playwright
 
         is_server = bool(os.environ.get("RENDER") or os.environ.get("DOCKER"))
 
-        co = ChromiumOptions()
-        co.set_argument("--no-first-run")
-        co.set_argument("--lang=zh-TW")
-        co.set_argument("--disable-blink-features=AutomationControlled")
-        co.auto_port()
+        # Persistent context dir holds cookies + Chrome profile state across
+        # runs, so we don't need a separate cookie cache file.
+        default_dir = "/tmp/dcard-profile" if is_server else ".cache/dcard-profile"
+        user_data_dir = os.environ.get("DCARD_USER_DATA_DIR", default_dir)
+        Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+
+        # patchright README's stealth recommendation: real Chrome channel,
+        # headed mode (xvfb on server), no_viewport=True, no custom UA.
+        args = [
+            "--lang=zh-TW",
+        ]
         if is_server:
-            # Render/Docker: required for Linux container environments.
-            # --headless=new is intentionally NOT added — same reasoning as
-            # threads.py (commit 83cd34a): CDP websocket handshake 404 on
-            # DrissionPage 4.1.x + Chrome 14x, plus Cloudflare easily
-            # detects headless. Render runs under xvfb virtual display.
-            co.set_argument("--no-sandbox")
-            co.set_argument("--disable-dev-shm-usage")
+            args.extend(["--no-sandbox", "--disable-dev-shm-usage"])
         else:
-            # Local: minimize the window offscreen so headed Chrome doesn't
-            # get in the way.
-            co.set_argument("--window-position=-2400,-2400")
+            # Local: shove the headed window offscreen so it doesn't pop up.
+            args.append("--window-position=-2400,-2400")
 
         try:
-            self._browser = Chromium(co)
-            self._tab = self._browser.latest_tab
+            self._pw = sync_playwright().start()
         except Exception as e:
-            print(f"  [DCard] Failed to launch Chromium: {e}")
-            self._browser = None
-            self._tab = None
+            print(f"  [DCard] sync_playwright().start() failed: {e}")
+            self._pw = None
             return
 
-        # Reduce webdriver fingerprint (best-effort).
+        # Try Chrome channel first, fall back to bundled chromium if Chrome
+        # is missing on this host.
+        last_err: Exception | None = None
+        for channel in ("chrome", None):
+            try:
+                self._context = self._pw.chromium.launch_persistent_context(
+                    user_data_dir=user_data_dir,
+                    channel=channel,
+                    headless=False,
+                    no_viewport=True,
+                    locale="zh-TW",
+                    args=args,
+                )
+                if channel:
+                    print(f"  [DCard] Launched patchright with channel={channel}")
+                else:
+                    print("  [DCard] Launched patchright with bundled chromium")
+                break
+            except Exception as e:
+                last_err = e
+                self._context = None
+        if self._context is None:
+            print(f"  [DCard] Failed to launch browser: {last_err}")
+            self._stop_browser()
+            return
+
         try:
-            self._tab.run_js(
-                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+            self._page = (
+                self._context.pages[0]
+                if self._context.pages
+                else self._context.new_page()
             )
-        except Exception:
-            pass
-
-        # Try cached cookies first — may let us skip the CF wait entirely.
-        if self._try_cached_clearance():
-            print("  [DCard] Using cached Cloudflare clearance")
+        except Exception as e:
+            print(f"  [DCard] Failed to open page: {e}")
+            self._stop_browser()
             return
 
-        # Fresh clearance path.
-        if not self._perform_clearance():
+        if not self._ensure_clearance():
             print("  [DCard] Cloudflare clearance FAILED — collection may return empty")
             return
 
-        # Persist new cookies for next run.
-        self._save_clearance_cookies()
-        print(f"  [DCard] Browser ready (title: {self._tab.title})")
+        try:
+            print(f"  [DCard] Browser ready (title: {self._page.title()!r})")
+        except Exception:
+            print("  [DCard] Browser ready")
 
     def _stop_browser(self) -> None:
-        if self._browser:
+        if self._context is not None:
             try:
-                self._browser.quit()
+                self._context.close()
             except Exception:
                 pass
-            self._browser = None
-            self._tab = None
+            self._context = None
+        if self._pw is not None:
+            try:
+                self._pw.stop()
+            except Exception:
+                pass
+            self._pw = None
+        self._page = None
 
     # ── Cloudflare clearance ────────────────────────────────────────────────
 
-    def _perform_clearance(self) -> bool:
-        """Load dcard.tw and wait until Cloudflare clearance completes.
-
-        Returns True if clearance appears to have succeeded.
-        """
+    def _ensure_clearance(self) -> bool:
+        """Try the persistent context first; if cookies are stale, do a fresh
+        homepage load and poll until Cloudflare lets us through."""
         max_wait = float(os.environ.get("DCARD_CF_WAIT_SEC", "30"))
-        max_attempts = 2
 
-        for attempt in range(1, max_attempts + 1):
-            print(
-                f"  [DCard] Loading homepage for Cloudflare clearance "
-                f"(attempt {attempt}/{max_attempts}, max {max_wait:.0f}s)..."
-            )
-            try:
-                self._tab.get("https://www.dcard.tw/")
-            except Exception as e:
-                print(f"  [DCard] Homepage load error: {e}")
-                time.sleep(2.0)
-                continue
+        # Fast path: persistent context may already have valid CF cookies.
+        # Going straight to a lightweight API endpoint avoids re-running the
+        # interstitial and is the cheapest possible probe.
+        try:
+            self._page.goto("https://www.dcard.tw/", wait_until="domcontentloaded", timeout=20000)
+        except Exception as e:
+            print(f"  [DCard] Initial homepage load error: {e}")
 
-            if self._poll_clearance(max_wait):
-                return True
+        if self._poll_clearance(max_wait):
+            return True
 
-            title = ""
-            try:
-                title = self._tab.title or ""
-            except Exception:
-                pass
-            print(f"  [DCard] Clearance attempt {attempt} failed (title: {title!r})")
-            time.sleep(2.0)
-
-        return False
+        # Slow path: one explicit reload, longer wait.
+        print("  [DCard] Persistent context didn't pass — retrying clearance")
+        try:
+            self._page.goto("https://www.dcard.tw/", wait_until="load", timeout=30000)
+        except Exception as e:
+            print(f"  [DCard] Retry homepage load error: {e}")
+            return False
+        return self._poll_clearance(max_wait)
 
     def _poll_clearance(self, max_wait: float) -> bool:
         """Poll until Cloudflare is out of the way.
 
         Success signal: page title is not a CF challenge marker AND a
         lightweight DCard API call through the browser returns JSON.
-        We can't rely on cf_clearance cookie alone — DCard's CF
-        configuration often uses only __cf_bm or a JS-only challenge
-        without any persistent cookie.
         """
         deadline = time.monotonic() + max_wait
         while time.monotonic() < deadline:
             time.sleep(1.0)
             try:
-                title = self._tab.title or ""
+                title = self._page.title() or ""
             except Exception:
                 title = ""
             if any(marker in title for marker in _CF_TITLE_MARKERS):
                 continue
-            # Title looks OK — probe the API to confirm CF isn't intercepting.
             probe = self._js_fetch_raw(
                 f"{_SEARCH_PATH}?query=test&field=all&sort=latest&country=TW&nsfw=false&platform=web"
             )
@@ -218,108 +234,23 @@ class DCardCollector(BaseCollector):
                 return True
         return False
 
-    def _try_cached_clearance(self) -> bool:
-        """Load cached cookies from disk and verify they still work."""
-        path = self._cookie_cache_path()
-        if not path.exists():
-            return False
-        try:
-            age = time.time() - path.stat().st_mtime
-        except OSError:
-            return False
-        if age > _COOKIE_CACHE_MAX_AGE_SEC:
-            return False
-
-        try:
-            with path.open("r", encoding="utf-8") as f:
-                cookies = json.load(f)
-        except (OSError, json.JSONDecodeError):
-            return False
-        if not isinstance(cookies, list) or not cookies:
-            return False
-
-        # Navigate to the domain first so cookies stick to the right origin.
-        try:
-            self._tab.get("https://www.dcard.tw/")
-        except Exception:
-            return False
-
-        # Inject cached cookies.
-        try:
-            self._tab.set.cookies(cookies)
-        except Exception as e:
-            print(f"  [DCard] Cached cookie injection failed: {e}")
-            return False
-
-        # Verify by hitting a lightweight API; if Cloudflare is happy, this
-        # returns JSON without being intercepted.
-        probe = self._js_fetch_raw(f"{_SEARCH_PATH}?query=test&field=all&sort=latest&country=TW&nsfw=false&platform=web")
-        if probe is None:
-            return False
-        return True
-
-    def _save_clearance_cookies(self) -> None:
-        path = self._cookie_cache_path()
-        try:
-            all_cookies = self._tab.cookies(all_domains=False, all_info=True)
-        except TypeError:
-            # Older signature fallback.
-            try:
-                all_cookies = self._tab.cookies()
-            except Exception as e:
-                print(f"  [DCard] Could not read cookies: {e}")
-                return
-        except Exception as e:
-            print(f"  [DCard] Could not read cookies: {e}")
-            return
-
-        # Normalise to plain dicts; DrissionPage sometimes returns a custom
-        # list-like where items already behave as dicts.
-        cf_cookies: list[dict] = []
-        for c in all_cookies or []:
-            try:
-                d = dict(c)
-            except Exception:
-                continue
-            name = d.get("name")
-            if name in _CF_COOKIE_NAMES:
-                cf_cookies.append(d)
-
-        if not cf_cookies:
-            # JS-only CF challenge — nothing persistent to cache, which is
-            # fine. The next run will just re-probe the homepage.
-            print("  [DCard] No persistent CF cookies — skipping cache (JS-only challenge)")
-            return
-
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("w", encoding="utf-8") as f:
-                json.dump(cf_cookies, f, ensure_ascii=False)
-            try:
-                os.chmod(path, 0o600)
-            except OSError:
-                pass
-            print(f"  [DCard] Cached {len(cf_cookies)} CF cookies → {path}")
-        except OSError as e:
-            print(f"  [DCard] Could not write cookie cache: {e}")
-
-    @staticmethod
-    def _cookie_cache_path() -> Path:
-        raw = os.environ.get("DCARD_COOKIE_CACHE_PATH", ".cache/dcard_cookies.json")
-        return Path(raw).expanduser()
-
     # ── API helpers ─────────────────────────────────────────────────────────
 
     def _js_fetch_raw(self, path: str) -> dict | list | None:
-        """Like _js_fetch but without rate-limiting (used during probes)."""
-        js = f"""
-        return fetch('{path}')
+        """Run fetch() inside the page without rate limiting (used by probes).
+
+        Note: we keep ``isolated_context=True`` (patchright default) so the
+        evaluation runs in an isolated world. This is what hides patchright
+        from CDP-based detection — DO NOT pass ``isolated_context=False``.
+        """
+        js = """
+        (path) => fetch(path)
             .then(r => r.ok ? r.json() : Promise.reject(r.status))
             .then(data => JSON.stringify(data))
-            .catch(e => JSON.stringify({{"__error": String(e)}}));
+            .catch(e => JSON.stringify({"__error": String(e)}))
         """
         try:
-            raw = self._tab.run_js(js)
+            raw = self._page.evaluate(js, path)
             if not raw:
                 return None
             data = json.loads(raw)
@@ -330,16 +261,16 @@ class DCardCollector(BaseCollector):
             return None
 
     def _js_fetch(self, path: str) -> dict | list | None:
-        """Execute fetch() inside the page and return parsed JSON."""
+        """Rate-limited variant for actual data calls."""
         self._limiter.wait()
-        js = f"""
-        return fetch('{path}')
+        js = """
+        (path) => fetch(path)
             .then(r => r.ok ? r.json() : Promise.reject(r.status))
             .then(data => JSON.stringify(data))
-            .catch(e => JSON.stringify({{"__error": String(e)}}));
+            .catch(e => JSON.stringify({"__error": String(e)}))
         """
         try:
-            raw = self._tab.run_js(js)
+            raw = self._page.evaluate(js, path)
             time.sleep(0.5)
             if not raw:
                 return None

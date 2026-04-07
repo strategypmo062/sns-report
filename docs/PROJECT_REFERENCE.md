@@ -216,6 +216,21 @@ python3 src/run_verify_last_parse_integrity.py input_file.txt
 
 ## 9. 작업 기록 (변경 이력)
 
+### 2026-04-07 (Fix: DCard CF 우회를 patchright로 교체)
+- **배경**: DrissionPage + 수동 쿠키 캐시 조합이 Cloudflare의 신규 탐지 벡터(특히 `Runtime.enable` CDP 명령 누출)에는 점진적으로 약해짐. patchright는 Playwright의 stealth fork로 이 누출 지점들을 패치하므로 CF 통과율이 더 높음.
+- **`src/collectors/dcard.py` 전면 재작성** — DrissionPage → patchright `sync_playwright` 로 전환.
+  - **`launch_persistent_context(user_data_dir=...)`**: 쿠키/프로필 상태가 user data dir에 자동 저장되어 수동 쿠키 캐시(`.cache/dcard_cookies.json` / `_save_clearance_cookies` / `_try_cached_clearance`) 로직 일체 삭제.
+  - **patchright stealth 권장 설정**: `channel="chrome"` (정식 Google Chrome), `headless=False`, `no_viewport=True`, `locale="zh-TW"`. Chrome channel 실패 시 bundled chromium으로 자동 폴백.
+  - **JS 호출 변경**: `tab.run_js(...)` → `page.evaluate(js, path)`. `isolated_context=True`(patchright 기본값) 유지가 stealth 핵심이므로 절대 `False`로 두지 말 것을 코드 주석에 명시.
+  - **clearance 흐름**: 첫 시도는 persistent context의 캐시된 쿠키로 바로 API probe → 실패 시 홈페이지 명시 reload 후 재폴링. 기존 `_CF_TITLE_MARKERS` 폴링 로직은 그대로 재사용.
+  - **유지**: `_search_keyword` / `_fetch_post` / `_strip_url_lines` / `_parse_date` / 검색 응답 envelope 언래핑(`searchPost` / legacy) / `RateLimiter` / `DCARD_CF_WAIT_SEC` env.
+  - **신규 env**: `DCARD_USER_DATA_DIR` (Render 기본 `/tmp/dcard-profile`, 로컬 `.cache/dcard-profile`).
+- **`Dockerfile` 수정** — `google-chrome-stable` 설치 추가.
+  - Google 서명키 + apt 리포 추가 후 `google-chrome-stable` 설치. 기존 `chromium` / `chromium-driver`는 Threads collector(DrissionPage)용으로 그대로 유지.
+  - `pip install` 후 `patchright install chromium` 한 번 실행해 fallback chromium도 받아둠.
+- **`requirements.txt` 정리** — `patchright>=1.40.0` 추가, 미사용 `playwright` / `playwright-stealth` 제거.
+- **호출부 영향 없음**: `BaseCollector.collect()` 시그니처 그대로, `get_collector("DCard")` 그대로.
+
 ### 2026-04-07 (Fix: PTT/DCard 수집기 Render 안정화)
 - **`src/collectors/ptt.py` 개편** — Render DC IP 차단 완화 + 재시도 인프라 추가.
   - **UA 풀**: 기존 고정 UA 1개를 데스크톱 Chrome/Firefox/Safari/Edge 최신 버전 8종 풀에서 세션 생성 시 무작위 선택.
