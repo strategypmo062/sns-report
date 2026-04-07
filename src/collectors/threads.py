@@ -127,37 +127,23 @@ class ThreadsCollector(BaseCollector):
     def _search_keyword(
         self, keyword: str, target_count: int
     ) -> list[tuple[str, str]]:
-        """검색 페이지에서 (post_url, iso_timestamp) 리스트 반환."""
+        """검색 페이지에서 (post_url, iso_timestamp) 리스트 반환.
+
+        Threads는 가상 스크롤(virtual scroll)을 사용해 DOM에 항상 소수의
+        글만 유지한다. 스크롤 후 마지막에 한 번에 수집하면 그 시점에 보이는
+        글만 잡힌다. 따라서 스크롤마다 현재 DOM의 글을 수집해 누적한다.
+        """
         self._limiter.wait()
         url = _SEARCH_URL.format(q=quote(keyword))
         self._tab.get(url)
         time.sleep(8)  # JS 렌더링 대기
 
-        # 더 많은 결과 로드를 위해 스크롤
-        prev_count = 0
-        for _ in range(10):  # 최대 10회 스크롤
-            count = self._tab.run_js(
-                "return document.querySelectorAll('a[href*=\"/post/\"]').length;"
-            )
-            if count >= target_count or count == prev_count:
-                break
-            prev_count = count
-            self._tab.run_js("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(4)
-
-        # post URL과 가장 가까운 time 태그를 매칭
-        raw = self._tab.run_js("""
+        _COLLECT_JS = """
             const results = [];
-            const seen = new Set();
             const links = document.querySelectorAll('a[href*="/post/"]');
             for (const link of links) {
                 const href = link.href;
-                if (seen.has(href)) continue;
-                // /@username/post/ID 형태만 허용 (미디어/좋아요 등 서브 경로 제외)
-                if (!href.match(/\/@[^\/]+\/post\/[^\/\?#]+$/)) continue;
-                seen.add(href);
-
-                // 같은 게시물 카드 안의 time 태그 찾기 (위로 8레벨까지 탐색)
+                if (!href.match(/\\/@[^\\/]+\\/post\\/[^\\/\\?#]+$/)) continue;
                 let container = link;
                 let timeEl = null;
                 for (let i = 0; i < 8 && container; i++) {
@@ -171,14 +157,41 @@ class ThreadsCollector(BaseCollector):
                 });
             }
             return JSON.stringify(results);
-        """)
+        """
 
-        try:
-            entries = json.loads(raw or "[]")
-        except Exception:
-            entries = []
+        accumulated: dict[str, str] = {}  # href → datetime
 
-        return [(e["href"], e.get("datetime", "")) for e in entries if e.get("href")]
+        def _collect_visible() -> None:
+            try:
+                raw = self._tab.run_js(_COLLECT_JS)
+                for e in json.loads(raw or "[]"):
+                    href = e.get("href")
+                    if href and href not in accumulated:
+                        accumulated[href] = e.get("datetime", "")
+            except Exception:
+                pass
+
+        # 첫 화면 수집
+        _collect_visible()
+
+        # 스크롤하며 누적 수집 (최대 20회)
+        no_new_streak = 0
+        for _ in range(20):
+            if len(accumulated) >= target_count:
+                break
+            before = len(accumulated)
+            self._tab.run_js("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(3)
+            _collect_visible()
+            if len(accumulated) == before:
+                no_new_streak += 1
+                if no_new_streak >= 3:
+                    break  # 3회 연속 새 글 없으면 더 이상 없는 것
+            else:
+                no_new_streak = 0
+
+        print(f"  [Threads] '{keyword}' 스크롤 수집 완료: {len(accumulated)}건", flush=True)
+        return list(accumulated.items())
 
     # ── post fetch ──────────────────────────────────────────────────────────
 
