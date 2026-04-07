@@ -216,6 +216,25 @@ python3 src/run_verify_last_parse_integrity.py input_file.txt
 
 ## 9. 작업 기록 (변경 이력)
 
+### 2026-04-07 (Fix: PTT/DCard 수집기 Render 안정화)
+- **`src/collectors/ptt.py` 개편** — Render DC IP 차단 완화 + 재시도 인프라 추가.
+  - **UA 풀**: 기존 고정 UA 1개를 데스크톱 Chrome/Firefox/Safari/Edge 최신 버전 8종 풀에서 세션 생성 시 무작위 선택.
+  - **현실적 헤더**: `Accept`, `Accept-Language: zh-TW,zh;q=0.9`, `Accept-Encoding`, `Connection: keep-alive`, `Upgrade-Insecure-Requests` 추가. 게시글 단건 요청에는 board index `Referer` 세팅.
+  - **urllib3 Retry 어댑터**: `total=3`, `backoff_factor=2.0`, `status_forcelist=[429,500,502,503,504]`를 세션에 mount.
+  - **수동 재시도 루프**: `_get()` 헬퍼 신설. `ConnectionError` 등 전송 계층 에러를 최대 3회 2^n초 대기 재시도. 3회 실패 시 "BLOCKED: all retries exhausted" 1회만 로깅.
+  - **RENDER/DOCKER env 분기**: 서버 환경에서 `RateLimiter` 간격 2.0→4.0s, 타임아웃 15→30s. `PTT_MIN_INTERVAL_SEC` env로 override 가능.
+  - **연속 실패 조기 탈출**: 한 board에서 3연속 실패 시 해당 board 포기하고 다음으로 이동.
+  - **`PTT_DISABLED=1` 스위치**: 설정 시 `collect()`가 빈 리스트 반환. Render에서 PTT를 완전히 끌 수 있는 킬스위치.
+- **`src/collectors/dcard.py` 개편** — Cloudflare clearance 안정화 + 쿠키 디스크 캐시.
+  - **RENDER/DOCKER env 분기**: Threads와 일관된 패턴. 서버 환경에서만 `--no-sandbox`/`--disable-dev-shm-usage` 적용, 로컬은 `--window-position=-2400,-2400`으로 offscreen. `--headless=new`는 여전히 추가하지 않음(CF 감지 회피 + CDP 404 회피).
+  - **`--disable-blink-features=AutomationControlled`** + `navigator.webdriver` 언셋 JS 주입으로 자동화 흔적 완화 (신규 의존성 없음).
+  - **CF 클리어런스 폴링**: 고정 `time.sleep(10)`을 `document.cookie`에서 `cf_clearance` 등장까지 최대 30초(`DCARD_CF_WAIT_SEC` override) 1초 간격 폴링으로 교체. 실패 시 홈페이지 재로드 후 1회 재시도.
+  - **쿠키 디스크 캐시** (효과 가장 큼): 클리어런스 성공 시 `cf_clearance`, `__cf_bm`, `__cflb`, `_cfuvid`를 `.cache/dcard_cookies.json`(override: `DCARD_COOKIE_CACHE_PATH`)에 저장. 24시간 이내 캐시가 있으면 홈페이지 로드 후 `tab.set.cookies()`로 주입하고 search API 프로브로 유효성 검증. 성공 시 CF 대기 완전 스킵.
+  - **실패 로깅 강화**: clearance 최종 실패 시 `BLOCKED` 한 줄 + 이후 빈 리스트 반환(파이프라인 중단 방지).
+- **새 env 변수**: `PTT_MIN_INTERVAL_SEC`, `PTT_DISABLED`, `DCARD_CF_WAIT_SEC`, `DCARD_COOKIE_CACHE_PATH` (모두 선택, 디폴트 값 있음).
+- **신규 의존성 없음**: Selenium, undetected-chromedriver, playwright-stealth 등 도입 없이 기존 `requests` + `DrissionPage` 스택만으로 해결.
+- **Selenium 사용 여부**: 전체 코드베이스에 Selenium import 없음을 확인. PTT=`requests`, DCard/Threads=`DrissionPage`. `requirements.txt`의 `playwright`/`playwright-stealth`는 설치되어 있으나 미사용.
+
 ### 2026-04-07 (Fix: env_loader — Render에서 SPREADSHEET_ID 등 환경변수 미인식)
 - **`src/env_loader.py::load_env_file()` 수정** — `os.environ`을 기본값으로 시작하고 `.env` 파일 값으로 덮어쓰는 방식으로 변경. 기존에는 `.env` 파일이 없으면 빈 딕셔너리를 반환해서 Render 환경변수가 무시됨.
 - **영향 범위**: `run_generate_pivot.py`, `run_generate_d_summary.py` 등 `load_env_file()`을 직접 호출하는 모든 CLI 스크립트. `pipeline_adapter.py`는 이미 `_load_env()`에서 `os.environ`을 먼저 읽는 패턴을 쓰고 있어 영향 없음.

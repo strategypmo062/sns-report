@@ -1,13 +1,30 @@
-"""PTT (ptt.cc) web scraping collector."""
+"""PTT (ptt.cc) web scraping collector.
+
+Notes on running on Render / other data centre hosts:
+    PTT actively blocks many DC IP ranges, so requests from Render can
+    get ``ConnectionResetError(104)`` immediately. We cannot fix IP-level
+    blocking from inside this code; what we *can* do is:
+      * rotate through a small pool of realistic desktop User-Agents
+      * send the same accompanying headers a normal browser sends
+      * retry transient errors with exponential backoff
+      * pace requests more conservatively on server environments
+      * log a clear "BLOCKED" line when every retry is exhausted
+      * expose a ``PTT_DISABLED=1`` env switch to skip the collector
+"""
 
 from __future__ import annotations
 
+import os
+import random
 import re
+import time
 from datetime import datetime, date
 from urllib.parse import quote
 
 import requests
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from .base import BaseCollector, CollectedPost, CollectedComment
 from .rate_limiter import RateLimiter
@@ -15,8 +32,25 @@ from .rate_limiter import RateLimiter
 _BASE = "https://www.ptt.cc"
 _DEFAULT_BOARDS = ["Gossiping", "MobileComm", "Lifeismoney"]
 _COOKIES = {"over18": "1"}
-_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+
+# Pool of recent desktop User-Agents. One is picked per collector instance.
+_UA_POOL = [
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:131.0) Gecko/20100101 Firefox/131.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0",
+]
+
+_BASE_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
 }
 
 _PUSH_RE = re.compile(
@@ -27,13 +61,40 @@ _PUSH_SIMPLE_RE = re.compile(
     r"^(?P<prefix>推|噓|→)\s*(?P<author>[^\s:]+)\s*:\s*(?P<body>.+)$"
 )
 
+_MAX_RETRIES = 3
+_CONSECUTIVE_FAILURE_LIMIT = 3  # abort a board after this many consecutive errors
+
 
 class PTTCollector(BaseCollector):
     def __init__(self):
-        self._limiter = RateLimiter(2.0)
+        is_server = bool(os.environ.get("RENDER") or os.environ.get("DOCKER"))
+
+        # Server environments get slower pacing and longer timeouts.
+        default_interval = "4.0" if is_server else "2.0"
+        interval = float(os.environ.get("PTT_MIN_INTERVAL_SEC", default_interval))
+        self._limiter = RateLimiter(interval)
+        self._timeout = 30 if is_server else 15
+        self._is_server = is_server
+
+        ua = random.choice(_UA_POOL)
         self._session = requests.Session()
         self._session.cookies.update(_COOKIES)
-        self._session.headers.update(_HEADERS)
+        self._session.headers.update(_BASE_HEADERS)
+        self._session.headers["User-Agent"] = ua
+
+        # urllib3 Retry covers some transport-level and specific HTTP codes.
+        retry = Retry(
+            total=_MAX_RETRIES,
+            backoff_factor=2.0,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset(["GET"]),
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self._session.mount("http://", adapter)
+        self._session.mount("https://", adapter)
+
+        self._blocked_logged = False
 
     @staticmethod
     def platform_name() -> str:
@@ -50,6 +111,10 @@ class PTTCollector(BaseCollector):
         max_posts: int = 30,
         **kwargs,
     ) -> list[CollectedPost]:
+        if os.environ.get("PTT_DISABLED", "").strip() in ("1", "true", "True"):
+            print("  [PTT] PTT_DISABLED=1 — skipping PTT collection")
+            return []
+
         boards = kwargs.get("boards", _DEFAULT_BOARDS)
         d_from = date.fromisoformat(date_from)
         d_to = date.fromisoformat(date_to)
@@ -74,28 +139,73 @@ class PTTCollector(BaseCollector):
 
         return all_posts
 
+    # ── HTTP with manual retry/backoff ──────────────────────────────────────
+
+    def _get(self, url: str, *, referer: str | None = None) -> requests.Response | None:
+        """GET *url* with manual retry for transport errors (ConnectionReset).
+
+        urllib3.Retry already handles certain status codes, but a peer
+        connection reset during the TLS handshake often surfaces as a
+        ``ConnectionError`` that the adapter gives up on. We retry up to
+        ``_MAX_RETRIES`` times with 2^n second backoff.
+        """
+        self._limiter.wait()
+        headers = {}
+        if referer:
+            headers["Referer"] = referer
+
+        last_err: str | None = None
+        for attempt in range(1, _MAX_RETRIES + 1):
+            try:
+                resp = self._session.get(url, timeout=self._timeout, headers=headers or None)
+                if resp.status_code == 200:
+                    return resp
+                last_err = f"HTTP {resp.status_code}"
+                # Non-200 + no retry eligible → return it so caller can decide.
+                if resp.status_code not in (429, 500, 502, 503, 504):
+                    return resp
+            except requests.RequestException as e:
+                last_err = type(e).__name__
+            if attempt < _MAX_RETRIES:
+                sleep_for = 2 ** attempt
+                print(f"  [PTT] {last_err} on {url} — retry {attempt}/{_MAX_RETRIES - 1} in {sleep_for}s")
+                time.sleep(sleep_for)
+
+        if not self._blocked_logged:
+            print(
+                f"  [PTT] BLOCKED: all retries exhausted ({last_err}) — "
+                f"likely IP-level block (Render DC?)"
+            )
+            self._blocked_logged = True
+        return None
+
+    # ── listing & article ──────────────────────────────────────────────────
+
     def _search_board(
         self, board: str, keyword: str,
         d_from: date, d_to: date, max_posts: int,
     ) -> list[str]:
         urls: list[str] = []
         search_url = f"{_BASE}/bbs/{board}/search?q={quote(keyword)}"
+        board_url = f"{_BASE}/bbs/{board}/index.html"
         today = date.today()
+        consecutive_failures = 0
 
         for page_num in range(1, 20):
             if len(urls) >= max_posts:
                 break
-            self._limiter.wait()
             page_url = search_url if page_num == 1 else f"{search_url}&page={page_num}"
 
-            try:
-                resp = self._session.get(page_url, timeout=15)
-                if resp.status_code != 200:
+            resp = self._get(page_url, referer=board_url)
+            if resp is None or resp.status_code != 200:
+                consecutive_failures += 1
+                if resp is not None:
                     print(f"  [PTT] Search {board} page {page_num}: HTTP {resp.status_code}")
+                if consecutive_failures >= _CONSECUTIVE_FAILURE_LIMIT:
+                    print(f"  [PTT] Aborting board '{board}' after {consecutive_failures} consecutive failures")
                     break
-            except requests.RequestException as e:
-                print(f"  [PTT] Search error: {e}")
-                break
+                continue
+            consecutive_failures = 0
 
             soup = BeautifulSoup(resp.text, "html.parser")
             entries = soup.select("div.r-ent")
@@ -144,12 +254,9 @@ class PTTCollector(BaseCollector):
     def _fetch_article(
         self, url: str, board: str, d_from: date, d_to: date
     ) -> CollectedPost | None:
-        self._limiter.wait()
-        try:
-            resp = self._session.get(url, timeout=15)
-            if resp.status_code != 200:
-                return None
-        except requests.RequestException:
+        referer = f"{_BASE}/bbs/{board}/index.html"
+        resp = self._get(url, referer=referer)
+        if resp is None or resp.status_code != 200:
             return None
 
         soup = BeautifulSoup(resp.text, "html.parser")
