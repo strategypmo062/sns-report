@@ -216,6 +216,17 @@ python3 src/run_verify_last_parse_integrity.py input_file.txt
 
 ## 9. 작업 기록 (변경 이력)
 
+### 2026-04-07 (Render Free OOM 진단용 메모리 로깅 추가)
+- **`api/pipeline_adapter.py` 수정** — `_log_mem(label)` 헬퍼 추가. `/proc/self/status` 의 VmRSS 와 `pgrep -c -f chrom` 결과를 한 줄로 출력 (Linux 외 환경에서도 안전, 추가 의존성 없음).
+- **호출 지점 4곳**: ① `collect_start {pname}` 직후, ② `collect_done {pname}` 직후, ③ `parse_start` 직후, ④ ThreadPoolExecutor `as_completed` 첫 진입(`completed == 1`).
+- **목적**: Render Free(512MB) 배포 후 Threads 수집 직후 LLM 파싱 단계에서 무반응 정지 현상 진단. OOM(커널 SIGKILL, exit 137) 여부와 단계별 RSS 추이, Chrome 자식 프로세스 정리 여부 확인.
+- **판정 기준**:
+  - `collect_done` 시점 `chrome procs > 0` → `browser.quit()` 누락 → Chrome pkill 보강 필요
+  - `parse_start` 시점 RSS > 350MB → 메모리 누적 → Chrome 메모리 플래그 + xvfb 제거 필요
+  - `parse_first_done` 라인 미출력 + Render Events 137 → OOM 확정
+- **다음 단계 (보류 중)**: Phase 2 최적화 (Chrome pkill, `--no-zygote` 등 메모리 플래그, xvfb-run 제거, `PARSE_CONCURRENCY=1`, 단계 사이 `gc.collect()`). 진단 결과 확인 후 적용 여부 결정.
+- **참고**: 코드 흐름상 `collect()` 의 finally 블록에서 `_stop_browser()` 가 호출되므로 이론상 LLM 파싱 진입 시점에는 Chrome 이 없어야 하지만, DrissionPage `Chromium.quit()` 가 자식 프로세스를 항상 완전히 정리하지 않는 케이스가 알려져 있어 실측이 필요.
+
 ### 2026-04-07 (Threads collector 로컬 Mac 핸드셰이크 404 수정)
 - **`src/collectors/threads.py::_start_browser()` 수정** — `--no-sandbox` / `--disable-dev-shm-usage` / `--headless=new`를 환경변수 `RENDER` 또는 `DOCKER`가 있을 때만 적용하도록 분기. 로컬 Mac에서는 GUI 모드로 떠서 핸드셰이크 회피.
 - **`Dockerfile` 수정** — `ENV DOCKER=1` 추가 (로컬 docker 빌드 시에도 headless 자동 적용; Render는 자체 `RENDER=true` 주입으로 영향 없음).

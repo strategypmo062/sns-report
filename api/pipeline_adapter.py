@@ -49,6 +49,26 @@ from run_parse_to_a import (
 )
 
 
+def _log_mem(label: str) -> None:
+    """진단용: 현재 RSS와 살아있는 chromium 프로세스 수를 한 줄 출력.
+    Render 무료 플랜(512MB)에서 OOM 여부 추적용. Linux 외 환경에서도 안전."""
+    try:
+        with open("/proc/self/status") as f:
+            rss = next((l for l in f if l.startswith("VmRSS:")), "VmRSS: ?").strip()
+    except Exception:
+        rss = "VmRSS: n/a (non-linux)"
+    chrome = "?"
+    try:
+        import subprocess
+        r = subprocess.run(
+            ["pgrep", "-c", "-f", "chrom"], capture_output=True, text=True
+        )
+        chrome = r.stdout.strip() or "0"
+    except Exception:
+        pass
+    print(f"  [mem] {label}: {rss} | chrome procs={chrome}", flush=True)
+
+
 def _load_env() -> dict:
     import os
     # os.environ을 기본값으로 쓰고, .env 파일이 있으면 그 값으로 덮어씀.
@@ -166,6 +186,7 @@ def collect_and_parse(
             raise RuntimeError("cancelled")
 
         on_event({"type": "collect_start", "platform": pname})
+        _log_mem(f"collect_start {pname}")
         try:
             collector = get_collector(pname)
         except ValueError as e:
@@ -186,6 +207,7 @@ def collect_and_parse(
                 **extra,
             )
             print(f"  [pipeline] {pname} collect() 완료: {len(posts)}건", flush=True)
+            _log_mem(f"collect_done {pname}")
         except Exception as e:
             print(f"  [pipeline] {pname} collect() 예외: {e}", flush=True)
             on_event({"type": "collect_error", "platform": pname, "error": str(e)})
@@ -280,6 +302,7 @@ def collect_and_parse(
         "total_units": total_units,
         "total_jobs": len(parse_jobs),
     })
+    _log_mem("parse_start")
 
     # ── Step 4: LLM parsing (parallel) ──────────────────────────────────────
     results_by_seq: dict[int, list[StructuredRecord]] = {}
@@ -308,6 +331,8 @@ def collect_and_parse(
                 raise RuntimeError("cancelled")
             job = future_map[future]
             completed += 1
+            if completed == 1:
+                _log_mem("parse_first_done")
             try:
                 try:
                     llm_json = future.result()
