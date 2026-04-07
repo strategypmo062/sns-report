@@ -91,16 +91,21 @@ class ThreadsCollector(BaseCollector):
     # ── browser lifecycle ───────────────────────────────────────────────────
 
     def _start_browser(self) -> None:
+        import os
         from DrissionPage import Chromium, ChromiumOptions
 
         co = ChromiumOptions()
         co.set_argument("--no-first-run")
         co.auto_port()
-        # Required for Linux container environments (e.g. Render, Docker)
-        co.set_argument("--no-sandbox")
-        co.set_argument("--disable-dev-shm-usage")
-        # Threads has no Cloudflare, so headless mode works fine in containers
-        co.set_argument("--headless=new")
+
+        # 서버(Render/Docker)에서만 헤드리스 + 샌드박스 해제.
+        # 로컬 Mac에서는 GUI 모드로 떠야 Chrome 146 + DrissionPage 4.1.x의
+        # CDP 핸드셰이크 404 문제를 회피할 수 있다.
+        is_server = bool(os.environ.get("RENDER") or os.environ.get("DOCKER"))
+        if is_server:
+            co.set_argument("--no-sandbox")
+            co.set_argument("--disable-dev-shm-usage")
+            co.set_argument("--headless=new")
 
         self._browser = Chromium(co)
         self._tab = self._browser.latest_tab

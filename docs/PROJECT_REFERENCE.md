@@ -216,6 +216,12 @@ python3 src/run_verify_last_parse_integrity.py input_file.txt
 
 ## 9. 작업 기록 (변경 이력)
 
+### 2026-04-07 (Threads collector 로컬 Mac 핸드셰이크 404 수정)
+- **`src/collectors/threads.py::_start_browser()` 수정** — `--no-sandbox` / `--disable-dev-shm-usage` / `--headless=new`를 환경변수 `RENDER` 또는 `DOCKER`가 있을 때만 적용하도록 분기. 로컬 Mac에서는 GUI 모드로 떠서 핸드셰이크 회피.
+- **`Dockerfile` 수정** — `ENV DOCKER=1` 추가 (로컬 docker 빌드 시에도 headless 자동 적용; Render는 자체 `RENDER=true` 주입으로 영향 없음).
+- **원인**: 직전 커밋(`5478d86`)에서 `--headless=new`를 무조건 켰는데, 로컬 Chrome 146.0.7680.178 + DrissionPage 4.1.1.2 조합에서 CDP 웹소켓 핸드셰이크가 `404 Not Found`로 실패. 수동으로 `curl http://localhost:9222/json/version`은 정상이라 Chrome/DrissionPage 자체 문제는 아니고 `--headless=new` + `auto_port()` 조합 호환성 이슈.
+- **영향**: 로컬 Mac에서 Threads 수집 시 Chrome 창이 잠깐 떴다 사라짐(정상). Render 배포는 `RENDER` 환경변수로 기존 headless 경로 그대로 유지.
+
 ### 2026-04-07 (시스템 프롬프트 개선 — 분류 정확도 향상)
 - **`prompts/sns_structuring_system_prompt.md` 수정** — Claude Chat 튜닝 결과 반영.
   - 추가: URL/게시글 맥락 활용 규칙 (5-2) — 본문에 유료 언급 없어도 게시글이 Premium 토론이면 분류 가능

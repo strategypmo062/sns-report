@@ -28,6 +28,8 @@ COPY . .
 
 # Render는 $PORT 환경변수를 주입한다 (기본 8000)
 ENV PORT=8000
+# 컨테이너 환경 식별용 (Threads collector가 headless 모드 분기에 사용)
+ENV DOCKER=1
 EXPOSE 8000
 
 # xvfb-run이 가상 디스플레이를 띄우고 그 안에서 uvicorn 실행.
