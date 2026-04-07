@@ -78,6 +78,7 @@ class ThreadsCollector(BaseCollector):
                     # 날짜 필터
                     post_date = self._parse_iso_date(ts_iso)
                     if post_date and (post_date < d_from or post_date > d_to):
+                        print(f"  [Threads] 날짜 필터: {post_date} (범위 {d_from}~{d_to}) → 스킵", flush=True)
                         continue
 
                     post = self._fetch_post(post_url, ts_iso)
