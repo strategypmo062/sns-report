@@ -216,6 +216,11 @@ python3 src/run_verify_last_parse_integrity.py input_file.txt
 
 ## 9. 작업 기록 (변경 이력)
 
+### 2026-04-07 (Fix: env_loader — Render에서 SPREADSHEET_ID 등 환경변수 미인식)
+- **`src/env_loader.py::load_env_file()` 수정** — `os.environ`을 기본값으로 시작하고 `.env` 파일 값으로 덮어쓰는 방식으로 변경. 기존에는 `.env` 파일이 없으면 빈 딕셔너리를 반환해서 Render 환경변수가 무시됨.
+- **영향 범위**: `run_generate_pivot.py`, `run_generate_d_summary.py` 등 `load_env_file()`을 직접 호출하는 모든 CLI 스크립트. `pipeline_adapter.py`는 이미 `_load_env()`에서 `os.environ`을 먼저 읽는 패턴을 쓰고 있어 영향 없음.
+- **로컬 동작 변화 없음**: `.env` 파일이 있으면 그 값이 `os.environ`보다 우선 적용.
+
 ### 2026-04-07 (Fix: Threads collector --headless=new 제거 — Render에서도 CDP 404 발생)
 - **`src/collectors/threads.py::_start_browser()` 수정** — 서버 환경(`RENDER`/`DOCKER`) 분기에서 `--headless=new` 제거. `--no-sandbox`와 `--disable-dev-shm-usage`는 유지.
 - **원인**: `--headless=new` + DrissionPage 4.1.x 조합이 로컬 Mac뿐 아니라 Render의 Chromium에서도 CDP 웹소켓 핸드셰이크 404를 유발. 진단 로그(`[mem]`)로 OOM이 아님을 확인 후 정확한 원인 특정.
