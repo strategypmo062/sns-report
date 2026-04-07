@@ -50,7 +50,12 @@ from run_parse_to_a import (
 
 
 def _load_env() -> dict:
-    return load_env_file(str(PROJECT_ROOT / ".env"))
+    import os
+    # os.environ을 기본값으로 쓰고, .env 파일이 있으면 그 값으로 덮어씀.
+    # Render처럼 .env 파일이 없는 환경에서는 os.environ만 사용.
+    env = dict(os.environ)
+    env.update(load_env_file(str(PROJECT_ROOT / ".env")))
+    return env
 
 
 # ── Public helpers ────────────────────────────────────────────────────────────
