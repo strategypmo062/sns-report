@@ -97,19 +97,23 @@ class DCardCollector(BaseCollector):
         # "virtual" lets camoufox manage its own xvfb display on server.
         headless = "virtual" if is_server else False
 
+        print(f"  [DCard] Starting camoufox (headless={headless!r}) ...")
         try:
             self._cam = Camoufox(
                 headless=headless,
                 geoip=True,
                 locale="zh-TW",
             )
+            print("  [DCard] Camoufox instance created, entering context ...")
             self._browser = self._cam.__enter__()
+            print("  [DCard] Browser process launched ✓")
         except Exception as e:
             print(f"  [DCard] Camoufox launch failed: {e}")
             self._cam = None
             self._browser = None
             return
 
+        print("  [DCard] Creating context & page ...")
         try:
             self._context = self._browser.new_context(
                 locale="zh-TW",

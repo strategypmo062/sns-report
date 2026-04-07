@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Chromium (Threads collector용 DrissionPage) + Xvfb + 동아시아 폰트.
 # camoufox(DCard collector)는 자체 Firefox 바이너리를 사용하므로 별도 Chrome 불필요.
-# 패키지 설치 시 apt가 필요한 런타임 라이브러리(libnss3, libgbm1 등)도 같이 끌어옴.
+# libgtk-3-0 등은 camoufox Firefox 런타임 의존성 (slim 이미지에 미포함).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         chromium \
         chromium-driver \
@@ -15,6 +15,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-noto-cjk \
         fonts-noto-color-emoji \
         ca-certificates \
+        libgtk-3-0 \
+        libdbus-glib-1-2 \
+        libasound2 \
+        libxt6 \
+        libx11-xcb1 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxrandr2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
