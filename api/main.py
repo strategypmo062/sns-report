@@ -4,6 +4,10 @@ import os
 import sys
 from pathlib import Path
 
+# .env 파일 로드 (로컬 개발 환경)
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 # Add src/ to Python path so existing pipeline modules are importable
 SRC_DIR = Path(__file__).resolve().parent.parent / "src"
 sys.path.insert(0, str(SRC_DIR))

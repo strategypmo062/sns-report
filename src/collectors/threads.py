@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
 from urllib.parse import quote
 
 from .base import BaseCollector, CollectedComment, CollectedPost
@@ -26,9 +26,14 @@ _POST_URL_RE = re.compile(r"https://www\.threads\.(?:net|com)/@([^/]+)/post/([^/
 
 class ThreadsCollector(BaseCollector):
     def __init__(self, env: dict | None = None):
+        import os
         self._tab = None
         self._browser = None
         self._limiter = RateLimiter(2.0)
+        env = env or {}
+        self._username = env.get("THREADS_USERNAME") or os.environ.get("THREADS_USERNAME")
+        self._password = env.get("THREADS_PASSWORD") or os.environ.get("THREADS_PASSWORD")
+        self._logged_in = False
 
     @staticmethod
     def platform_name() -> str:
@@ -58,6 +63,14 @@ class ThreadsCollector(BaseCollector):
         self._start_browser()
         print("  [Threads] _start_browser() 완료", flush=True)
 
+        if self._username and self._password:
+            try:
+                self._login()
+            except Exception as e:
+                print(f"  [Threads] 로그인 실패 (비로그인 모드로 진행): {e}", flush=True)
+        else:
+            print("  [Threads] THREADS_USERNAME/PASSWORD 미설정 — 비로그인 모드", flush=True)
+
         all_posts: list[CollectedPost] = []
         seen_urls: set[str] = set()
 
@@ -65,7 +78,7 @@ class ThreadsCollector(BaseCollector):
             for keyword in keywords:
                 if len(all_posts) >= max_posts:
                     break
-                url_entries = self._search_keyword(keyword, max_posts * 2)
+                url_entries = self._search_keyword(keyword, max_posts * 2, date_from=d_from)
                 print(f"  [Threads] '{keyword}' 검색 결과: {len(url_entries)}개 후보", flush=True)
 
                 for post_url, ts_iso in url_entries:
@@ -108,6 +121,14 @@ class ThreadsCollector(BaseCollector):
         if is_server:
             co.set_argument("--no-sandbox")
             co.set_argument("--disable-dev-shm-usage")
+            # Render 무료 티어(512MB) 메모리 절약 — Chromium이 CPU/메모리를 독점하면
+            # uvicorn 이벤트 루프까지 스케줄 기회를 잃어 헬스체크도 무응답이 된다.
+            co.set_argument("--disable-gpu")
+            co.set_argument("--disable-extensions")
+            co.set_argument("--disable-background-networking")
+            co.set_argument("--disable-default-apps")
+            co.set_argument("--renderer-process-limit=1")
+            co.set_argument("--js-flags=--max-old-space-size=256")
 
         self._browser = Chromium(co)
         self._tab = self._browser.latest_tab
@@ -122,10 +143,60 @@ class ThreadsCollector(BaseCollector):
             self._browser = None
             self._tab = None
 
+    # ── login ───────────────────────────────────────────────────────────────
+
+    def _login(self) -> None:
+        """Threads 로그인 페이지에서 ID/PW로 로그인.
+
+        비로그인 상태에서는 검색 결과가 약 10건으로 제한되므로 무한 스크롤이
+        동작하지 않는다. Instagram 자격증명으로 로그인해야 정상 스크롤 가능.
+        """
+        self._limiter.wait()
+        login_url = "https://www.threads.com/login"
+        print(f"  [Threads] 로그인 페이지 로딩: {login_url}", flush=True)
+        self._tab.get(login_url, timeout=30)
+        time.sleep(5)  # JS 렌더링 대기
+
+        # username/password 입력 필드 탐색 (Threads는 placeholder 한국어/영어 혼재)
+        try:
+            user_input = self._tab.ele("css:input[autocomplete='username']", timeout=10)
+            pass_input = self._tab.ele("css:input[autocomplete='current-password']", timeout=10)
+        except Exception:
+            # 폴백: type 기반 셀렉터
+            user_input = self._tab.ele("css:input[type='text']", timeout=10)
+            pass_input = self._tab.ele("css:input[type='password']", timeout=10)
+
+        if not user_input or not pass_input:
+            raise RuntimeError("로그인 폼 필드를 찾지 못함")
+
+        user_input.input(self._username)
+        time.sleep(0.5)
+        pass_input.input(self._password)
+        time.sleep(0.5)
+
+        # 제출 버튼 — type=submit 우선, 실패 시 Enter 키
+        submit_btn = self._tab.ele("css:button[type='submit']", timeout=5)
+        if submit_btn:
+            submit_btn.click()
+        else:
+            pass_input.input("\n")
+
+        print("  [Threads] 로그인 폼 제출, 응답 대기...", flush=True)
+        time.sleep(8)  # 리다이렉트 + 세션 쿠키 발급 대기
+
+        # 성공 판정: URL이 /login 이 아니거나, 로그인 후에만 보이는 요소 존재
+        current_url = self._tab.url or ""
+        if "/login" in current_url:
+            # 챌린지/2FA/CAPTCHA 페이지 가능성
+            raise RuntimeError(f"로그인 후에도 /login URL 유지됨: {current_url}")
+
+        self._logged_in = True
+        print(f"  [Threads] 로그인 성공: {current_url}", flush=True)
+
     # ── search ──────────────────────────────────────────────────────────────
 
     def _search_keyword(
-        self, keyword: str, target_count: int
+        self, keyword: str, target_count: int, date_from: date | None = None
     ) -> list[tuple[str, str]]:
         """검색 페이지에서 (post_url, iso_timestamp) 리스트 반환.
 
@@ -135,7 +206,9 @@ class ThreadsCollector(BaseCollector):
         """
         self._limiter.wait()
         url = _SEARCH_URL.format(q=quote(keyword))
-        self._tab.get(url)
+        print(f"  [Threads] 검색 페이지 로딩: {url}", flush=True)
+        self._tab.get(url, timeout=30)
+        print("  [Threads] 검색 페이지 로드 완료", flush=True)
         time.sleep(8)  # JS 렌더링 대기
 
         _COLLECT_JS = """
@@ -174,21 +247,41 @@ class ThreadsCollector(BaseCollector):
         # 첫 화면 수집
         _collect_visible()
 
-        # 스크롤하며 누적 수집 (최대 20회)
+        # 스크롤하며 누적 수집 (최대 50회)
+        # 종료 조건 1: DOM에 새 URL이 3회 연속 늘지 않음 (페이지 바닥)
+        # 종료 조건 2: 새로 추가된 글이 모두 date_from 이전이면 3회 연속 시 종료
+        #             (Threads는 최신순 → 아래로 갈수록 오래된 글만 나옴)
         no_new_streak = 0
-        for _ in range(20):
+        past_range_streak = 0
+        for _ in range(50):
             if len(accumulated) >= target_count:
                 break
-            before = len(accumulated)
+            prev_urls = set(accumulated.keys())
             self._tab.run_js("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(3)
             _collect_visible()
-            if len(accumulated) == before:
+            new_urls = set(accumulated.keys()) - prev_urls
+
+            if not new_urls:
                 no_new_streak += 1
+                past_range_streak = 0
                 if no_new_streak >= 3:
-                    break  # 3회 연속 새 글 없으면 더 이상 없는 것
+                    print(f"  [Threads] '{keyword}' 스크롤 조기 종료: DOM 새 글 없음", flush=True)
+                    break
             else:
                 no_new_streak = 0
+                if date_from is not None:
+                    new_dates = [self._parse_iso_date(accumulated[u]) for u in new_urls]
+                    valid = [d for d in new_dates if d is not None]
+                    if valid and all(d < date_from for d in valid):
+                        past_range_streak += 1
+                        if past_range_streak >= 3:
+                            print(f"  [Threads] '{keyword}' 스크롤 조기 종료: 수집 범위 이전 글만 노출", flush=True)
+                            break
+                    else:
+                        past_range_streak = 0
+                else:
+                    past_range_streak = 0
 
         print(f"  [Threads] '{keyword}' 스크롤 수집 완료: {len(accumulated)}건", flush=True)
         return list(accumulated.items())
@@ -205,7 +298,8 @@ class ThreadsCollector(BaseCollector):
         author = m.group(1)
 
         try:
-            self._tab.get(post_url)
+            print(f"  [Threads] 포스트 로딩: {post_url}", flush=True)
+            self._tab.get(post_url, timeout=30)
             time.sleep(5)
             # Related threads 섹션 lazy loading 트리거 (스크롤 후 복귀)
             self._tab.run_js("window.scrollTo(0, document.body.scrollHeight);")
@@ -361,9 +455,14 @@ class ThreadsCollector(BaseCollector):
 
     @staticmethod
     def _parse_iso_date(iso_str: str) -> date | None:
+        """Threads `<time datetime>`는 UTC ISO 타임스탬프.
+        KST(Asia/Seoul, UTC+9)로 변환 후 날짜만 반환해야 사용자가 UI에서
+        선택한 날짜 범위와 일치한다."""
         if not iso_str:
             return None
         try:
-            return datetime.fromisoformat(iso_str.replace("Z", "+00:00")).date()
+            dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+            kst = timezone(timedelta(hours=9))
+            return dt.astimezone(kst).date()
         except ValueError:
             return None

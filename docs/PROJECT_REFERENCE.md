@@ -212,6 +212,23 @@ python3 src/run_verify_last_parse_integrity.py input_file.txt
 
 ## 9. 작업 기록 (변경 이력)
 
+### 2026-04-08 (Feat: Threads 로그인 추가 — 비로그인 시 검색 결과 ~10건 한계 돌파)
+- **배경**: Threads는 비로그인 상태에서 검색 결과를 약 10건으로 제한하고 무한 스크롤이 동작하지 않음. Instagram 자격증명으로 로그인 시 정상 동작.
+- **`src/collectors/threads.py` `__init__()`**: `THREADS_USERNAME` / `THREADS_PASSWORD` 환경변수 읽기 (`env` dict 우선, fallback `os.environ`).
+- **`_login()` 메서드 추가**: `https://www.threads.com/login` 이동 → `input[autocomplete='username']` / `input[autocomplete='current-password']` 셀렉터로 폼 입력 → `button[type='submit']` 클릭 → 8초 대기 후 URL이 `/login`이 아니면 성공으로 판정. 챌린지/2FA/CAPTCHA 시 RuntimeError.
+- **`collect()`**: `_start_browser()` 직후 자격증명 있으면 `_login()` 호출, 실패해도 비로그인 모드로 진행 (graceful fallback).
+- **.env 추가 항목 (수동)**: `THREADS_USERNAME`, `THREADS_PASSWORD` — Render에도 동일 설정 필요.
+
+### 2026-04-08 (Fix: Threads 날짜 필터 타임존 버그)
+- **문제**: `<time datetime>` 속성은 UTC ISO 타임스탬프인데 `_parse_iso_date()`가 `.date()`를 직접 호출해 UTC 날짜를 반환. KST 새벽 시간대 글이 전날 글로 잘못 분류되어 4월 7일 필터에 4월 8일 KST 글이 통과됨.
+- **`src/collectors/threads.py` `_parse_iso_date()`**: `dt.astimezone(timezone(timedelta(hours=9))).date()`로 KST 변환 후 날짜 추출.
+
+### 2026-04-08 (Fix: Threads 수집 중 전체 프로세스 무응답)
+- **원인**: Render 무료 티어(512MB)에서 Chromium 리소스 제한 플래그 없이 headed 모드로 Threads JS-heavy 페이지 로드 시, Chromium이 CPU/메모리를 독점해 uvicorn 이벤트 루프까지 스케줄 기회를 잃어 헬스체크도 무응답.
+- **`src/collectors/threads.py` `_start_browser()`**: 서버 환경에 `--disable-gpu`, `--disable-extensions`, `--disable-background-networking`, `--disable-default-apps`, `--renderer-process-limit=1`, `--js-flags=--max-old-space-size=256` 추가.
+- **`src/collectors/threads.py`**: `_tab.get(url)` → `_tab.get(url, timeout=30)` (검색 페이지·개별 포스트 모두). 타임아웃 초과 시 기존 `except Exception` 블록에서 캐치 후 다음 URL로 진행.
+- 로딩 전후 `print` 로그 추가 (어느 URL에서 멈추는지 즉시 식별 가능).
+
 ### 2026-04-08 (Policy: DCard 자동 수집 포기 → 수동 붙여넣기로 전환)
 - **결정**: Render 클라우드 IP가 Cloudflare에 의해 차단됨을 확인. patchright(Chromium), camoufox(Firefox), playwright 모두 CF clearance FAILED. IP 평판 문제로 브라우저 stealth로는 해결 불가.
 - **`api/static/index.html`**: 자동 수집 플랫폼에서 DCard 체크박스 제거. 직접 붙여넣기 헬프 텍스트를 "PTT·Threads 외 SNS(DCard, YouTube, Mobile01 등)는 링크와 텍스트를 여기에 직접 붙여넣으세요."로 변경.
