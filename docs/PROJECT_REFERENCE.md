@@ -212,6 +212,16 @@ python3 src/run_verify_last_parse_integrity.py input_file.txt
 
 ## 9. 작업 기록 (변경 이력)
 
+### 2026-04-08 (Fix: Threads DrissionPage "页面被刷新" race condition on Render)
+- **증상**: Render 배포 후 Threads 수집 중 `[pipeline] Threads collect() 예외: 页面被刷新，请操作前尝试等待页面刷新或加载完成。版本: 4.1.1.2` 반복 발생. 로컬 Mac에서는 재현 안 됨.
+- **원인**: DrissionPage 4.1.1.2가 "페이지 리로드 중 DOM 조작 시도" 감지 시 던지는 예외. Render 무료 티어(512MB, Singapore)의 느린 I/O + 메모리 압박 때문에 기존 하드코딩 `time.sleep(3)`이 스크롤 직후 DOM 재구성을 커버하지 못함. Threads 가상 스크롤 SPA가 내부 fetch 진행 중일 때 `run_js()` 호출이 걸림.
+- **`src/collectors/threads.py` `_wait_for_stable_dom()` 추가**: DOM `scrollHeight`가 `quiet_sec` 동안 변하지 않을 때까지 폴링하는 smart wait. run_js 실패는 재시도로 흡수.
+- **`src/collectors/threads.py` `_run_js_safe()` 추가**: "页面被刷新"/"page refresh" 에러에 한해 최대 2회 자동 재시도 (재시도 전 3초 backoff + DOM 안정화 대기).
+- **`_search_keyword()`**: 검색 페이지 로딩 `time.sleep(8)` 뒤 `_wait_for_stable_dom(12, 1.5)` 추가. 스크롤 루프의 `time.sleep(3)` → `_wait_for_stable_dom(8, 1.0)`으로 교체. `_collect_visible()`의 `run_js` → `_run_js_safe`. 스크롤 `run_js` 실패 시 루프 계속.
+- **`_fetch_post()`**: 포스트 로딩 후 `_wait_for_stable_dom(10)` 추가. lazy-load 스크롤 두 번 모두 `_run_js_safe` + 안정화 대기. 본문 추출 `run_js` → `_run_js_safe` + try/except로 감싸 실패 시 해당 포스트만 스킵.
+- **`requirements.txt`**: `DrissionPage>=4.0.0` → `DrissionPage==4.1.1.2` (배포 환경 버전 튐 방지).
+- **검증**: Render 재배포 후 Threads 수집 로그에서 `[Threads] run_js 재시도` 빈도와 `页面被刷新` 에러 소멸 여부 확인. 로컬은 `python3 src/run_collect_and_parse.py --platforms threads ...`로 회귀 테스트.
+
 ### 2026-04-08 (Feat: Threads 로그인 추가 — 비로그인 시 검색 결과 ~10건 한계 돌파)
 - **배경**: Threads는 비로그인 상태에서 검색 결과를 약 10건으로 제한하고 무한 스크롤이 동작하지 않음. Instagram 자격증명으로 로그인 시 정상 동작.
 - **`src/collectors/threads.py` `__init__()`**: `THREADS_USERNAME` / `THREADS_PASSWORD` 환경변수 읽기 (`env` dict 우선, fallback `os.environ`).

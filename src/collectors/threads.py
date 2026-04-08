@@ -102,6 +102,69 @@ class ThreadsCollector(BaseCollector):
 
         return all_posts
 
+    # ── stability helpers ───────────────────────────────────────────────────
+
+    def _wait_for_stable_dom(
+        self, timeout_sec: float = 10.0, quiet_sec: float = 1.5
+    ) -> None:
+        """DOM 높이가 quiet_sec 동안 변하지 않을 때까지 폴링.
+
+        Render 무료 티어처럼 느린 I/O 환경에서 하드코딩된 time.sleep()이
+        부족해 DrissionPage의 "页面被刷新" 에러가 나는 것을 방지한다.
+        run_js 실패는 무시하고 재시도한다 (리로드 진행 중일 수 있음).
+        """
+        deadline = time.monotonic() + timeout_sec
+        last_h = -1
+        stable_since: float | None = None
+        while time.monotonic() < deadline:
+            try:
+                h = self._tab.run_js("return document.body.scrollHeight")
+            except Exception:
+                time.sleep(0.5)
+                stable_since = None
+                last_h = -1
+                continue
+            try:
+                h = int(h) if h is not None else -1
+            except Exception:
+                h = -1
+            if h == last_h and h > 0:
+                if stable_since is None:
+                    stable_since = time.monotonic()
+                elif time.monotonic() - stable_since >= quiet_sec:
+                    return
+            else:
+                last_h = h
+                stable_since = None
+            time.sleep(0.3)
+
+    def _run_js_safe(
+        self, script: str, retries: int = 2, backoff: float = 3.0
+    ):
+        """run_js 호출을 "페이지 리프레시" 에러에 한해 자동 재시도."""
+        last_err: Exception | None = None
+        for attempt in range(retries + 1):
+            try:
+                return self._tab.run_js(script)
+            except Exception as e:
+                last_err = e
+                msg = str(e)
+                is_refresh_err = ("页面被刷新" in msg) or (
+                    "refresh" in msg.lower() and "page" in msg.lower()
+                )
+                if is_refresh_err and attempt < retries:
+                    print(
+                        f"  [Threads] run_js 재시도 {attempt + 1}/{retries}: 페이지 리프레시 감지",
+                        flush=True,
+                    )
+                    time.sleep(backoff)
+                    # 재시도 전 DOM 안정화 대기
+                    self._wait_for_stable_dom(timeout_sec=6.0, quiet_sec=1.0)
+                    continue
+                raise
+        if last_err:
+            raise last_err
+
     # ── browser lifecycle ───────────────────────────────────────────────────
 
     def _start_browser(self) -> None:
@@ -210,6 +273,8 @@ class ThreadsCollector(BaseCollector):
         self._tab.get(url, timeout=30)
         print("  [Threads] 검색 페이지 로드 완료", flush=True)
         time.sleep(8)  # JS 렌더링 대기
+        # Render 느린 I/O 대응: DOM이 실제로 안정화될 때까지 추가 대기
+        self._wait_for_stable_dom(timeout_sec=12.0, quiet_sec=1.5)
 
         _COLLECT_JS = """
             const results = [];
@@ -236,7 +301,7 @@ class ThreadsCollector(BaseCollector):
 
         def _collect_visible() -> None:
             try:
-                raw = self._tab.run_js(_COLLECT_JS)
+                raw = self._run_js_safe(_COLLECT_JS)
                 for e in json.loads(raw or "[]"):
                     href = e.get("href")
                     if href and href not in accumulated:
@@ -257,8 +322,14 @@ class ThreadsCollector(BaseCollector):
             if len(accumulated) >= target_count:
                 break
             prev_urls = set(accumulated.keys())
-            self._tab.run_js("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(3)
+            try:
+                self._run_js_safe("window.scrollTo(0, document.body.scrollHeight);")
+            except Exception as e:
+                print(f"  [Threads] 스크롤 실패, 다음 반복: {e}", flush=True)
+                self._wait_for_stable_dom(timeout_sec=6.0, quiet_sec=1.0)
+                continue
+            # Render 느린 I/O 대응: 고정 sleep 대신 DOM 안정화 대기
+            self._wait_for_stable_dom(timeout_sec=8.0, quiet_sec=1.0)
             _collect_visible()
             new_urls = set(accumulated.keys()) - prev_urls
 
@@ -301,10 +372,13 @@ class ThreadsCollector(BaseCollector):
             print(f"  [Threads] 포스트 로딩: {post_url}", flush=True)
             self._tab.get(post_url, timeout=30)
             time.sleep(5)
+            # Render 느린 I/O 대응: 고정 sleep 뒤 DOM 안정화 대기
+            self._wait_for_stable_dom(timeout_sec=10.0, quiet_sec=1.5)
             # Related threads 섹션 lazy loading 트리거 (스크롤 후 복귀)
-            self._tab.run_js("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2)
-            self._tab.run_js("window.scrollTo(0, 0);")
+            self._run_js_safe("window.scrollTo(0, document.body.scrollHeight);")
+            self._wait_for_stable_dom(timeout_sec=6.0, quiet_sec=1.0)
+            self._run_js_safe("window.scrollTo(0, 0);")
+            self._wait_for_stable_dom(timeout_sec=4.0, quiet_sec=0.8)
         except Exception as e:
             print(f"  [Threads] 페이지 로드 실패 {post_url}: {e}")
             return None
@@ -313,7 +387,8 @@ class ThreadsCollector(BaseCollector):
         # 각 <time> 태그마다 "그 time만 포함하는 가장 큰 ancestor"를 카드로 잡는다.
         # 이렇게 해야 본문/댓글/답글이 각각 독립된 카드로 분리된다.
         # "Related threads" 섹션 이후의 카드는 제외한다.
-        raw = self._tab.run_js("""
+        try:
+            raw = self._run_js_safe("""
             const items = [];
 
             // "Related threads" 경계 요소 탐색
@@ -357,7 +432,10 @@ class ThreadsCollector(BaseCollector):
                 }
             }
             return JSON.stringify(items);
-        """)
+            """)
+        except Exception as e:
+            print(f"  [Threads] 본문 run_js 실패 {post_url}: {e}", flush=True)
+            return None
 
         try:
             items = json.loads(raw or "[]")
