@@ -134,7 +134,7 @@ sns-report/                    ← 2단계에서 git clone으로 만든 폴더
    - 다른 Finder 창에서 다운로드 폴더(또는 받은 JSON 파일이 있는 위치) 열기
    - JSON 파일을 `keys` 폴더 창 안으로 **드래그해서 놓기**
 
-4. **파일 이름 바꾸기**
+4. **파일 이름 바꾸기** *(제가 메일로 드린 파일 그대로 가지고 계신다면 이 과정은 생략해 주세요! 이름 안 바꾸셔도 됩니다)*
    - `keys` 폴더 안의 JSON 파일 클릭 → **Enter** 키 (이름 변경 모드)
    - 정확히 **`service_account.json`** 으로 입력 → Enter
    - 확장자를 변경하겠냐고 물으면 ".json 사용"
@@ -147,6 +147,12 @@ sns-report/                    ← 2단계에서 git clone으로 만든 폴더
    - 2단계에서 클론한 `sns-report` 폴더가 보임 → 더블클릭으로 들어가기
    - (만약 다른 위치에 클론했다면 그 위치로 이동)
 
+   > 💡 **PowerShell에서 한 번에 여는 법**: 2단계 직후라면 PowerShell이 이미 `sns-report` 폴더 안에 있을 거예요. 아래 명령으로 해당 폴더를 파일 탐색기로 바로 열 수 있습니다:
+   > ```powershell
+   > explorer .
+   > ```
+   > 만약 PowerShell을 새로 열었다면 먼저 `cd $HOME\sns-report` 로 이동한 다음 `explorer .` 실행.
+
 2. **`keys` 폴더 만들기**
    - `sns-report` 폴더 안에서 **빈 공간 우클릭** → **"새로 만들기"** → **"폴더"**
    - 폴더 이름을 정확히 **`keys`** (소문자) 로 입력 → Enter
@@ -156,7 +162,7 @@ sns-report/                    ← 2단계에서 git clone으로 만든 폴더
    - 다른 파일 탐색기 창에서 `다운로드` 폴더(또는 받은 JSON 파일이 있는 위치) 열기
    - JSON 파일을 `keys` 폴더 창 안으로 **드래그해서 놓기**
 
-4. **파일 이름 바꾸기**
+4. **파일 이름 바꾸기** *(제가 메일로 드린 파일 그대로 가지고 계신다면 이 과정은 생략해 주세요! 이름 안 바꾸셔도 됩니다)*
    - 먼저 파일 확장자가 보이게 설정 (Windows 11 기준): 상단 메뉴 **"보기" → "표시" → "파일 확장명"** 체크
    - `keys` 폴더 안의 JSON 파일 우클릭 → **"이름 바꾸기"** (또는 클릭 후 F2)
    - 정확히 **`service_account.json`** 으로 입력 → Enter
@@ -168,7 +174,7 @@ sns-report/                    ← 2단계에서 git clone으로 만든 폴더
 - **JSON 파일을 `sns-report/` 바로 아래 두고 `keys/` 폴더 안 만듦** → 반드시 `keys/` 폴더 안에 있어야 함
 - **파일명을 `service-account.json` 처럼 하이픈으로** → 정확히 언더스코어(`_`) `service_account.json`
 
-### (3) Google Spreadsheet 만들기
+### (3) Google Spreadsheet 만들기 *(제가 이미 만들어 뒀기 때문에 이 과정도 생략해 주세요)*
 - https://sheets.google.com 에서 새 빈 시트 만들기
 - 시트 URL이 `https://docs.google.com/spreadsheets/d/**여기긴문자열**/edit` 같이 생겼는데, **여기긴문자열** 부분이 `SPREADSHEET_ID`
 - 그 시트의 "공유" 버튼 → 위에서 만든 서비스 계정 이메일(`...@....iam.gserviceaccount.com`, JSON 파일 안에 `client_email`로 적혀있음)을 **편집자** 권한으로 추가
