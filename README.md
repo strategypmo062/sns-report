@@ -267,6 +267,38 @@ D_SUMMARY_CONCURRENCY=3
 LLM_INTER_CALL_DELAY_SEC=1.5
 ```
 
+#### 이 파일에서 새로 채우셔야 하는 값
+
+아래 4가지만 채우시면 됩니다. 나머지는 그대로 두세요:
+
+| 항목 | 어디서 받는지 |
+|---|---|
+| `ANTHROPIC_API_KEY` | 메일로 받은 값 (sk-ant-api03-... 형태) |
+| `SPREADSHEET_ID` | 메일로 받은 Google Sheet ID |
+| `THREADS_USERNAME` | 메일로 받은 Threads 계정명 |
+| `THREADS_PASSWORD` | 메일로 받은 Threads 비밀번호 |
+
+예시:
+```
+ANTHROPIC_API_KEY=sk-ant-api03-abcd1234efgh5678ijkl
+SPREADSHEET_ID=1VZ-jjq9r4Snh9gf654ocZcQS4TCOP9vsPgheEIA4HfA
+GOOGLE_APPLICATION_CREDENTIALS=keys/service_account.json
+THREADS_USERNAME=my_username_123
+THREADS_PASSWORD=my_password_456
+PARSE_CONCURRENCY=2
+D_SUMMARY_CONCURRENCY=3
+LLM_INTER_CALL_DELAY_SEC=1.5
+```
+
+#### 저장 방법
+
+다 채웠으면 **반드시 저장**해야 해요:
+
+- 🍎 **Mac (TextEdit)**: `Cmd + S` 또는 상단 메뉴 File → Save
+- 🪟 **Windows (메모장)**: `Ctrl + S` 또는 상단 메뉴 파일 → 저장
+
+저장되면 창이 닫히거나 제목이 변합니다. 확실히 하려면 `Cmd + S` / `Ctrl + S` 한 번 더 누르면 됩니다.
+
 > ⚠️ `.env`와 `keys/service_account.json`은 절대 GitHub에 올라가지 않습니다 (`.gitignore`에 등록되어 있음). 안심하고 본인 키 넣으세요.
 
 ---
