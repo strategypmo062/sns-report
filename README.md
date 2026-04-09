@@ -81,6 +81,20 @@ cd sns-report
 
 **중요**: 이 명령은 반드시 **2단계에서 만든 `sns-report` 폴더 안에서** 실행해야 해요. 터미널/PowerShell에 `cd sns-report`로 들어간 상태인지 확인하세요.
 
+> 💡 **현재 어느 폴더에 있는지 확인하는 법**
+>
+> 터미널/PowerShell에 아래 명령을 치면 지금 위치한 폴더 경로가 나옵니다:
+> ```bash
+> pwd
+> ```
+> 결과 끝이 `.../sns-report` 로 끝나야 정상입니다.
+>
+> 만약 다른 폴더에 있다면:
+> - 🍎 Mac: `cd ~/sns-report` (홈 폴더에 클론한 경우)
+> - 🪟 Windows: `cd $HOME\sns-report`
+>
+> 그 외 위치에 클론했다면 그 경로로 직접 이동하세요. 또한 터미널 프롬프트(명령 입력줄 앞부분)에도 보통 현재 폴더명이 표시돼요. 예: `username@MacBook sns-report %` 또는 `PS C:\Users\username\sns-report>` 처럼 끝에 `sns-report`가 보이면 OK.
+
 ```bash
 # Mac
 pip3 install -r requirements.txt
