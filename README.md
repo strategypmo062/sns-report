@@ -307,6 +307,8 @@ LLM_INTER_CALL_DELAY_SEC=1.5
 
 ### 웹앱으로 쓰기 (권장)
 
+> 💡 **"웹앱"이란?** — 브라우저(Chrome, Safari 같은 곳)에서 버튼 클릭으로 사용하는 방식을 말합니다. 명령어를 외워야 하는 CLI와 달리, 화면에서 클릭만 하면 돼요.
+
 ```bash
 # Windows
 python -m uvicorn main:app --app-dir api --port 8000
@@ -315,7 +317,7 @@ python -m uvicorn main:app --app-dir api --port 8000
 python3 -m uvicorn main:app --app-dir api --port 8000
 ```
 
-브라우저에서 http://localhost:8000 접속하면 화면이 뜹니다.
+위 명령을 실행하면 터미널/PowerShell에 메시지가 떠요. 그럼 브라우저를 열고 주소창에 `http://localhost:8000` 을 치면 화면이 나타납니다.
 종료는 터미널에서 `Ctrl+C`.
 
 ---
