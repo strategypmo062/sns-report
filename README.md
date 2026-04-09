@@ -257,8 +257,8 @@ code .env
 `.env` 파일을 열면 안에 이런 내용이 보여요. **`=` 뒤에 값만 채우면 됩니다** (따옴표 없이, 공백 없이):
 
 ```
-ANTHROPIC_API_KEY=sk-ant-api03-여기에본인키
-SPREADSHEET_ID=여기에시트ID
+ANTHROPIC_API_KEY=
+SPREADSHEET_ID=
 GOOGLE_APPLICATION_CREDENTIALS=keys/service_account.json
 THREADS_USERNAME=
 THREADS_PASSWORD=
@@ -271,12 +271,12 @@ LLM_INTER_CALL_DELAY_SEC=1.5
 
 아래 4가지만 채우시면 됩니다. 나머지는 그대로 두세요:
 
-| 항목 | 어디서 받는지 |
+| 항목 | 뭘 넣는지 |
 |---|---|
-| `ANTHROPIC_API_KEY` | 메일로 받은 값 (sk-ant-api03-... 형태) |
-| `SPREADSHEET_ID` | 메일로 받은 Google Sheet ID |
-| `THREADS_USERNAME` | 메일로 받은 Threads 계정명 |
-| `THREADS_PASSWORD` | 메일로 받은 Threads 비밀번호 |
+| `ANTHROPIC_API_KEY` | sk-ant-api03으로 시작하는 키 |
+| `SPREADSHEET_ID` | Google Sheet ID (긴 문자열) |
+| `THREADS_USERNAME` | Threads 계정명 |
+| `THREADS_PASSWORD` | Threads 비밀번호 |
 
 예시:
 ```
