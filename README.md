@@ -317,7 +317,14 @@ python -m uvicorn main:app --app-dir api --port 8000
 python3 -m uvicorn main:app --app-dir api --port 8000
 ```
 
-위 명령을 실행하면 터미널/PowerShell에 메시지가 떠요. 그럼 브라우저를 열고 주소창에 `http://localhost:8000` 을 치면 화면이 나타납니다.
+위 명령을 실행하면 터미널/PowerShell에 비슷한 메시지가 떠요:
+
+```
+INFO:     Uvicorn running on http://127.0.0.1:8000
+INFO:     Application startup complete
+```
+
+이 메시지가 보이면 **성공**입니다! 🎉 그럼 브라우저를 열고 주소창에 `http://localhost:8000` 을 치면 화면이 나타납니다.
 종료는 터미널에서 `Ctrl+C`.
 
 ---
