@@ -104,7 +104,7 @@ python -m pip install -r requirements.txt
 
 이 도구는 **본인 키 3종**이 필요합니다. 직접 발급 받으셔야 해요.
 
-### (1) Anthropic API 키
+### (1) Anthropic API 키 *(제가 드린 API 키 활용하실 것이기 때문에 생략)*
 - https://console.anthropic.com 가입 → 결제수단 등록 → "API Keys" 메뉴에서 새 키 발급
 - `sk-ant-api03-...` 형태 문자열을 메모장에 잠깐 복사
 
