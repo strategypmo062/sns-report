@@ -108,7 +108,7 @@ python -m pip install -r requirements.txt
 - https://console.anthropic.com 가입 → 결제수단 등록 → "API Keys" 메뉴에서 새 키 발급
 - `sk-ant-api03-...` 형태 문자열을 메모장에 잠깐 복사
 
-### (2) 서비스 계정 JSON 파일을 `keys/` 폴더에 넣기
+### (2) 서비스 계정 JSON 파일을 `keys` 폴더에 넣기
 
 받은 JSON 파일은 반드시 다음 **경로**와 **파일명**으로 두어야 코드가 인식해요:
 
@@ -171,7 +171,7 @@ sns-report/                    ← 2단계에서 git clone으로 만든 폴더
 
 - **`keys` 가 아니라 `key`, `Keys`, `key 폴더` 같은 오타/대소문자 차이** → 정확히 소문자 `keys`
 - **파일명이 `service_account.json.json` 으로 중복** → Windows에서 확장자 숨김 켜진 상태로 이름 바꿀 때 자주 발생. 위 4번에서 확장자 표시 먼저 켜기
-- **JSON 파일을 `sns-report/` 바로 아래 두고 `keys/` 폴더 안 만듦** → 반드시 `keys/` 폴더 안에 있어야 함
+- **JSON 파일을 `sns-report` 바로 아래 두고 `keys` 폴더 안 만듦** → 반드시 `keys` 폴더 안에 있어야 함
 - **파일명을 `service-account.json` 처럼 하이픈으로** → 정확히 언더스코어(`_`) `service_account.json`
 
 ### (3) Google Spreadsheet 만들기 *(제가 이미 만들어 뒀기 때문에 이 과정도 생략해 주세요)*
@@ -275,7 +275,7 @@ python -m uvicorn main:app --app-dir api --port 8000
 | `'python'은(는) ... 인식되지 않습니다` (Windows) | Python 재설치 시 "Add to PATH" 체크. 설치 후 PowerShell 새 창 열기 |
 | `pip는 내부 또는 외부 명령... 아닙니다` (Windows) | `pip` 대신 **`python -m pip install -r requirements.txt`** 로 실행 |
 | `pip: command not found` (Mac) | `pip` 대신 `pip3` 로 실행 |
-| `FileNotFoundError: keys/service_account.json` | 파일명 오타 확인 (`service_account.json` 정확히), `keys/` 폴더 안에 있는지 확인, `sns-report` 폴더 안에서 실행 중인지 확인 |
+| `FileNotFoundError: keys/service_account.json` | 파일명 오타 확인 (`service_account.json` 정확히), `keys` 폴더 안에 있는지 확인, `sns-report` 폴더 안에서 실행 중인지 확인 |
 | `gspread.exceptions.APIError: ... PERMISSION_DENIED` | 시트 공유 설정에서 서비스 계정 이메일에 **편집자** 권한 줬는지 확인 |
 | `anthropic.AuthenticationError` | `.env`의 `ANTHROPIC_API_KEY` 값 확인, 결제수단 등록됐는지 확인 |
 | 포트 8000 이미 사용 중 | 명령어 끝의 `--port 8000`을 `--port 8001` 로 바꾸기 |
