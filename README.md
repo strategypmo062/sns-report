@@ -91,9 +91,9 @@ cd sns-report
 >
 > 만약 다른 폴더에 있다면:
 > - 🍎 Mac: `cd ~/sns-report` (홈 폴더에 클론한 경우)
-> - 🪟 Windows: `cd $HOME\sns-report`
+> - 🪟 Windows: `cd $HOME\sns-report` (`$HOME`은 본인 홈 폴더, 보통 `C:\Users\본인계정`. 확인은 PowerShell에 `echo $HOME`)
 >
-> 그 외 위치에 클론했다면 그 경로로 직접 이동하세요. 또한 터미널 프롬프트(명령 입력줄 앞부분)에도 보통 현재 폴더명이 표시돼요. 예: `username@MacBook sns-report %` 또는 `PS C:\Users\username\sns-report>` 처럼 끝에 `sns-report`가 보이면 OK.
+> 그 외 위치에 클론했다면 그 경로로 직접 이동하세요. 파일 탐색기/Finder에서 `sns-report` 폴더의 주소창에 보이는 경로를 그대로 `cd "전체경로"` 형태로 붙여넣으면 됩니다 (경로에 공백 있으면 따옴표 필수). 또한 터미널 프롬프트(명령 입력줄 앞부분)에도 보통 현재 폴더명이 표시돼요. 예: `username@MacBook sns-report %` 또는 `PS C:\Users\username\sns-report>` 처럼 끝에 `sns-report`가 보이면 OK.
 
 ```bash
 # Mac
