@@ -1,6 +1,7 @@
 # 비밀/인증
 .env
 .env.*
+!.env.example
 keys/
 
 # Python 캐시
@@ -18,6 +19,9 @@ __pycache__/
 # 결과물/데이터 (Google 시트에 저장되므로 Git 불필요)
 exports/
 data/
+
+# 브라우저 프로필/쿠키 캐시 (DCard 수집기)
+.cache/
 
 # 이상한 pip 아티팩트
 =*

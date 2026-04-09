@@ -212,6 +212,12 @@ python3 src/run_verify_last_parse_integrity.py input_file.txt
 
 ## 9. 작업 기록 (변경 이력)
 
+### 2026-04-09 (Docs: 외부 사용자용 `README.md` + `.env.example` 추가)
+- **배경**: GitHub 리포를 클론한 사람이 어떤 환경 변수가 필요한지/어떻게 셋업하는지 알 수 없는 상태였음 (`.env`, `keys/`는 `.gitignore`로 제외, README 부재).
+- **`README.md` 신규**: 사전 준비물(Python 3.13, Anthropic API 키, GCP 서비스 계정, 본인 Spreadsheet) → 설치 → 환경 설정 → 웹앱/CLI 실행 → 시트 구조/핵심 규칙 링크.
+- **`.env.example` 신규**: `ANTHROPIC_API_KEY`, `SPREADSHEET_ID`, `GOOGLE_APPLICATION_CREDENTIALS`, `THREADS_USERNAME`, `THREADS_PASSWORD`, `PARSE_CONCURRENCY`, `D_SUMMARY_CONCURRENCY`, `LLM_INTER_CALL_DELAY_SEC` 포함. 더 이상 사용 안 하는 `THREADS_ACCESS_TOKEN`은 제외.
+- **`.gitignore` 무수정**: `.env`, `keys/`는 계속 무시.
+
 ### 2026-04-08 (Fix: Threads DrissionPage "页面被刷新" race condition on Render)
 - **증상**: Render 배포 후 Threads 수집 중 `[pipeline] Threads collect() 예외: 页面被刷新，请操作前尝试等待页面刷新或加载完成。版本: 4.1.1.2` 반복 발생. 로컬 Mac에서는 재현 안 됨.
 - **원인**: DrissionPage 4.1.1.2가 "페이지 리로드 중 DOM 조작 시도" 감지 시 던지는 예외. Render 무료 티어(512MB, Singapore)의 느린 I/O + 메모리 압박 때문에 기존 하드코딩 `time.sleep(3)`이 스크롤 직후 DOM 재구성을 커버하지 못함. Threads 가상 스크롤 SPA가 내부 fetch 진행 중일 때 `run_js()` 호출이 걸림.
@@ -532,6 +538,23 @@ python3 src/run_verify_last_parse_integrity.py input_file.txt
 - xlsx 내보내기 엔진 전환: `openpyxl` → `xlsxwriter`
 - C 탭 기반 다운로드 방식 추가: `src/run_export_c_sheet_xlsx.py`
 - 템플릿 기반 export 정리 (1개 경로로 통일)
+
+### 2026-04-09
+- **GitHub 계정 마이그레이션** (개인 → 회사)
+  - 개인 repo: `https://github.com/w22273720/sns-report.git` (personal remote으로 백업)
+  - 회사 repo: `https://github.com/strategypmo062/sns-report.git` (origin으로 변경)
+  - 전체 커밋 히스토리 + 코드 유지 (작성자는 기존 상태 유지, 새 커밋부턴 회사 계정)
+  - 마이그레이션 명령어:
+    ```bash
+    git remote rename origin personal
+    git remote add origin https://github.com/strategypmo062/sns-report.git
+    git push origin --all
+    git push origin --tags
+    ```
+- **Threads 계정 전환 안내** (`.env` 파일 수정으로 구현)
+  - `THREADS_USERNAME`, `THREADS_PASSWORD` 변경 후 수집 실행
+  - 세션 저장 없음 (매 실행마다 새 브라우저 시작 → 로그인)
+- **TODO**: Render 배포 설정 확인 필요 (회사 repo 연결 여부)
 
 ---
 
